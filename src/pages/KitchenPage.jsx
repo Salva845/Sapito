@@ -120,13 +120,30 @@ function TicketPreview({ tableId, items, total, note }) {
 
 // ── SendBillModal — encargado arma y envía la cuenta ─────────────────────────
 // Una vez confirmado se crea el bill con status='sent' y el cliente lo ve
-function SendBillModal({ tableId, orders, onClose, onSend }) {
+function SendBillModal({ tableId, orders, onClose, onSend, previousBill }) {
     const buildItems = () => {
+        // Items de los pedidos del menú
         const agg = {}
         orders.flatMap(o => o.order_items || []).forEach(it => {
             if (!agg[it.name]) agg[it.name] = { name: it.name, price: it.price, qty: 0 }
             agg[it.name].qty += it.qty
         })
+
+        // Si hay un bill anterior (reenvío), fusionar sus items para no perder
+        // los productos agregados manualmente ni los ya confirmados
+        if (previousBill) {
+            ; (previousBill.bill_items || []).forEach(it => {
+                if (agg[it.name]) {
+                    // El producto ya viene de los pedidos — usar la qty mayor para no duplicar
+                    // Si el bill anterior tenía más (por ajuste manual), respetar eso
+                    agg[it.name].qty = Math.max(agg[it.name].qty, it.qty)
+                } else {
+                    // Producto que no viene de un pedido (agregado manualmente) — conservarlo
+                    agg[it.name] = { name: it.name, price: Number(it.price), qty: it.qty }
+                }
+            })
+        }
+
         return Object.values(agg)
     }
 
@@ -602,6 +619,13 @@ export default function KitchenPage() {
 
     // ── Enviar cuenta al cliente (status='sent') ──────────────────────────────
     const handleSendBill = async (tableId, billItems, total, note) => {
+        // Si ya existe un bill enviado para esta mesa, marcarlo como reemplazado
+        // antes de crear el nuevo — evita que queden dos bills 'sent' al mismo tiempo
+        const existingBill = sentBills[tableId]
+        if (existingBill) {
+            await supabase.from('bills').update({ status: 'replaced' }).eq('id', existingBill.id)
+        }
+
         const { data: bill, error } = await supabase
             .from('bills')
             .insert({ table_id: tableId, total, note, status: 'sent' })
@@ -626,7 +650,10 @@ export default function KitchenPage() {
 
     // ── Confirmar pago y cerrar mesa ──────────────────────────────────────────
     const handleConfirmPago = async (tableId, billId) => {
+        // Cerrar el bill especifico como pagado
         await supabase.from('bills').update({ status: 'paid' }).eq('id', billId)
+        // Por seguridad, marcar cualquier otro bill 'sent' de esta mesa como reemplazado
+        await supabase.from('bills').update({ status: 'replaced' }).eq('table_id', tableId).eq('status', 'sent').neq('id', billId)
         await supabase.from('orders').update({ closed: true }).eq('table_id', tableId).eq('closed', false)
         await supabase.from('tables').update({ status: 'free' }).eq('id', tableId)
 
@@ -977,6 +1004,7 @@ export default function KitchenPage() {
                     <SendBillModal
                         tableId={modal.tableId}
                         orders={byTable[modal.tableId] || []}
+                        previousBill={sentBills[modal.tableId] || null}
                         onClose={() => setModal(null)}
                         onSend={(items, total, note) => handleSendBill(modal.tableId, items, total, note)}
                     />

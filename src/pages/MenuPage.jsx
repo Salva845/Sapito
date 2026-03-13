@@ -313,26 +313,38 @@ export default function MenuPage() {
         }
         checkBill()
 
-        // Escuchar inserción de nueva cuenta en tiempo real
+        // Escuchar nueva cuenta o reenvío en tiempo real
+        const fetchLatestBill = async () => {
+            const { data } = await supabase
+                .from('bills')
+                .select('*, bill_items(*)')
+                .eq('table_id', parseInt(tableId))
+                .eq('status', 'sent')
+                .order('closed_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+            if (data) {
+                setBill(data)
+                setBillNew(true)
+                setShowBillModal(true)
+            } else {
+                // Bill fue reemplazado/pagado — limpiar
+                setBill(null)
+                setBillNew(false)
+                setShowBillModal(false)
+            }
+        }
+
         const channel = supabase
             .channel(`client-bill-${tableId}-${Date.now()}`)
             .on('postgres_changes', {
                 event: 'INSERT', schema: 'public', table: 'bills',
                 filter: `table_id=eq.${tableId}`,
-            }, async (payload) => {
-                if (payload.new.status === 'sent') {
-                    const { data } = await supabase
-                        .from('bills')
-                        .select('*, bill_items(*)')
-                        .eq('id', payload.new.id)
-                        .single()
-                    if (data) {
-                        setBill(data)
-                        setBillNew(true)   // activa pulso en botón
-                        setShowBillModal(true) // abre modal automáticamente
-                    }
-                }
-            })
+            }, fetchLatestBill)
+            .on('postgres_changes', {
+                event: 'UPDATE', schema: 'public', table: 'bills',
+                filter: `table_id=eq.${tableId}`,
+            }, fetchLatestBill)
             .subscribe()
 
         return () => supabase.removeChannel(channel)
