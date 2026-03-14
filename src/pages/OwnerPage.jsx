@@ -8,7 +8,9 @@ import { theme, globalCss } from '../lib/theme'
 // En producción: usa Supabase Auth con un usuario admin.
 const ADMIN_PASSWORD = 'admin123'
 
-const CATEGORIES = ['Botana', 'Hotdog', 'Burrito']
+const CATEGORIES = ['Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES', 'HAMBURGUESAS', 'ALITAS, PAPAS Y MAS',
+    'HOT DOGS', 'PA BOTANEAR', 'SNACKS', 'CARNES', 'BURRITOS', 'TACOS', 'ALAMBRES', 'QUESOS FUNDIDOS Y COSTRAS',
+    'ENSALADAS', 'CERVEZAS', 'COCTELERIA', 'BEBIDAS SIN ALCOHOL']
 const EMOJIS = ['🧀', '🍗', '🌭', '🌯', '🫓', '🥙', '🍔', '🥗', '🍟', '🥪', '🧆', '🌮']
 
 // ── helpers ───────────────────────────────────────────────────────────────────
