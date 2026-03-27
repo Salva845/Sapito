@@ -391,6 +391,8 @@ function SplitModal({ tableId, sessionOrderIds, onClose, onSend }) {
 // ── Main MenuPage ─────────────────────────────────────────────────────────────
 export default function MenuPage() {
     const tableId = useTableId()
+    const tableNum = Number.parseInt(tableId, 10)
+    const storageKey = tableId ? `sapito:menu-state:${tableId}` : null
 
     const [products, setProducts] = useState([])
     const [loading, setLoading] = useState(true)
@@ -408,6 +410,7 @@ export default function MenuPage() {
     const [showAccountToast, setShowAccountToast] = useState(false)
     const [showSplitModal, setShowSplitModal] = useState(false)
     const [splitSent, setSplitSent] = useState(false)
+    const [stateHydrated, setStateHydrated] = useState(false)
 
     if (!tableId) return (
         <>
@@ -430,16 +433,78 @@ export default function MenuPage() {
         load()
     }, [])
 
+    // Restaurar estado de sesión para no perder pedidos/cuenta al recargar
+    useEffect(() => {
+        if (!tableId || Number.isNaN(tableNum)) return
+
+        const hydrate = async () => {
+            // 1) Restaurar desde localStorage
+            if (storageKey) {
+                const raw = window.localStorage.getItem(storageKey)
+                if (raw) {
+                    try {
+                        const saved = JSON.parse(raw)
+                        if (Array.isArray(saved.sessionOrderIds)) setSessionOrderIds([...new Set(saved.sessionOrderIds)])
+                        if (saved.accountRequested) setAccountRequested(true)
+                        if (saved.splitSent) setSplitSent(true)
+                    } catch {
+                        // Si el JSON está corrupto, se ignora y se rehidrata desde BD.
+                    }
+                }
+            }
+
+            // 2) Rehidratar también desde BD por seguridad
+            const { data: openOrders } = await supabase
+                .from('orders')
+                .select('id,request_account,account_handled')
+                .eq('table_id', tableNum)
+                .eq('closed', false)
+                .order('created_at', { ascending: true })
+
+            if (openOrders) {
+                const orderIds = openOrders.filter(o => !o.request_account).map(o => o.id)
+                if (orderIds.length) setSessionOrderIds(prev => [...new Set([...prev, ...orderIds])])
+
+                const hasPendingAccountRequest = openOrders.some(o => o.request_account && !o.account_handled)
+                if (hasPendingAccountRequest) setAccountRequested(true)
+            }
+
+            const { data: splitReq } = await supabase
+                .from('split_requests')
+                .select('id')
+                .eq('table_id', tableNum)
+                .eq('status', 'pending')
+                .limit(1)
+                .maybeSingle()
+
+            if (splitReq) setSplitSent(true)
+            setStateHydrated(true)
+        }
+
+        hydrate()
+    }, [storageKey, tableId, tableNum])
+
+    // Persistir estado mínimo de la sesión del cliente
+    useEffect(() => {
+        if (!storageKey || !stateHydrated) return
+
+        window.localStorage.setItem(storageKey, JSON.stringify({
+            sessionOrderIds,
+            accountRequested,
+            splitSent,
+        }))
+    }, [storageKey, stateHydrated, sessionOrderIds, accountRequested, splitSent])
+
     // Escuchar bill
     useEffect(() => {
         if (!tableId) return
         const checkBill = async () => {
-            const { data } = await supabase.from('bills').select('*, bill_items(*)').eq('table_id', parseInt(tableId)).eq('status', 'sent').order('closed_at', { ascending: false }).limit(1).maybeSingle()
+            const { data } = await supabase.from('bills').select('*, bill_items(*)').eq('table_id', tableNum).eq('status', 'sent').order('closed_at', { ascending: false }).limit(1).maybeSingle()
             if (data) setBill(data)
         }
         checkBill()
         const fetchLatestBill = async () => {
-            const { data } = await supabase.from('bills').select('*, bill_items(*)').eq('table_id', parseInt(tableId)).eq('status', 'sent').order('closed_at', { ascending: false }).limit(1).maybeSingle()
+            const { data } = await supabase.from('bills').select('*, bill_items(*)').eq('table_id', tableNum).eq('status', 'sent').order('closed_at', { ascending: false }).limit(1).maybeSingle()
             if (data) { setBill(data); setBillNew(true); setShowBillModal(true) }
             else { setBill(null); setBillNew(false); setShowBillModal(false) }
         }
@@ -448,7 +513,7 @@ export default function MenuPage() {
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bills', filter: `table_id=eq.${tableId}` }, fetchLatestBill)
             .subscribe()
         return () => supabase.removeChannel(ch)
-    }, [tableId])
+    }, [tableId, tableNum])
 
     // Cart
     const addToCart = (product) => setCart(c => { const ex = c.find(i => i.id === product.id); return ex ? c.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i) : [...c, { ...product, qty: 1 }] })
@@ -462,10 +527,10 @@ export default function MenuPage() {
         if (!cart.length || submitting) return
         setSubmitting(true)
         try {
-            const { data: order, error: oErr } = await supabase.from('orders').insert({ table_id: parseInt(tableId) }).select().single()
+            const { data: order, error: oErr } = await supabase.from('orders').insert({ table_id: tableNum }).select().single()
             if (oErr) throw oErr
             await supabase.from('order_items').insert(cart.map(i => ({ order_id: order.id, product_id: i.id, name: i.name, price: i.price, photo: i.photo, qty: i.qty, status: 'recibido' })))
-            await supabase.from('tables').update({ status: 'active' }).eq('id', parseInt(tableId))
+            await supabase.from('tables').update({ status: 'active' }).eq('id', tableNum)
             setSessionOrderIds(prev => [...prev, order.id])
             setCart([])
             setSubmitted(true)
@@ -481,7 +546,7 @@ export default function MenuPage() {
         if (!window.confirm(`¿Solicitar la cuenta para la Mesa #${tableId}?`)) return
         setRequestingAccount(true)
         try {
-            await supabase.from('orders').insert({ table_id: parseInt(tableId), request_account: true })
+            await supabase.from('orders').insert({ table_id: tableNum, request_account: true })
             setAccountRequested(true)
             setShowAccountToast(true)
             setTimeout(() => setShowAccountToast(false), 4000)
@@ -495,7 +560,7 @@ export default function MenuPage() {
         // Insertar split_request
         const { data: sr, error } = await supabase
             .from('split_requests')
-            .insert({ table_id: parseInt(tableId), num_people: people.length, status: 'pending' })
+            .insert({ table_id: tableNum, num_people: people.length, status: 'pending' })
             .select().single()
         if (error || !sr) { alert('Error al enviar solicitud'); return }
 
@@ -511,7 +576,7 @@ export default function MenuPage() {
         }
 
         // Insertar orden con request_account para notificar a cocina
-        await supabase.from('orders').insert({ table_id: parseInt(tableId), request_account: true })
+        await supabase.from('orders').insert({ table_id: tableNum, request_account: true })
 
         setShowSplitModal(false)
         setSplitSent(true)
