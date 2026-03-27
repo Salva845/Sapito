@@ -4,13 +4,12 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { theme, globalCss } from '../lib/theme'
 
-// Contraseña hardcodeada para demo.
-// En producción: usa Supabase Auth con un usuario admin.
-const ADMIN_PASSWORD = 'admin123'
-
-const CATEGORIES = ['Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES', 'HAMBURGUESAS', 'ALITAS, PAPAS Y MAS',
-    'HOT DOGS', 'PA BOTANEAR', 'SNACKS', 'CARNES', 'BURRITOS', 'TACOS', 'ALAMBRES', 'QUESOS FUNDIDOS Y COSTRAS',
-    'ENSALADAS', 'CERVEZAS', 'COCTELERIA', 'BEBIDAS SIN ALCOHOL']
+const CATEGORIES = [
+    'Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES', 'HAMBURGUESAS',
+    'ALITAS, PAPAS Y MAS', 'HOT DOGS', 'PA BOTANEAR', 'SNACKS', 'CARNES',
+    'BURRITOS', 'TACOS', 'ALAMBRES', 'QUESOS FUNDIDOS Y COSTRAS',
+    'ENSALADAS', 'CERVEZAS', 'COCTELERIA', 'BEBIDAS SIN ALCOHOL',
+]
 const EMOJIS = ['🧀', '🍗', '🌭', '🌯', '🫓', '🥙', '🍔', '🥗', '🍟', '🥪', '🧆', '🌮']
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -35,7 +34,7 @@ function StatCard({ icon, label, value, color }) {
 // ── ProductForm ───────────────────────────────────────────────────────────────
 function ProductForm({ initial, onSave, onCancel }) {
     const [form, setForm] = useState(
-        initial || { name: '', category: 'Botana', price: '', description: '', photo: '🍔', available: true }
+        initial || { name: '', category: 'Entradas', price: '', description: '', photo: '🍔', available: true }
     )
     const [saving, setSaving] = useState(false)
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -52,7 +51,6 @@ function ProductForm({ initial, onSave, onCancel }) {
             <h3 style={{ fontFamily: 'Bebas Neue', fontSize: 22, color: theme.accent, letterSpacing: 2, marginBottom: 14 }}>
                 {initial ? 'EDITAR PRODUCTO' : 'NUEVO PRODUCTO'}
             </h3>
-
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div style={{ gridColumn: 'span 2' }}>
                     <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 4 }}>NOMBRE *</label>
@@ -70,10 +68,10 @@ function ProductForm({ initial, onSave, onCancel }) {
                 </div>
                 <div style={{ gridColumn: 'span 2' }}>
                     <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 4 }}>DESCRIPCIÓN</label>
-                    <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={2} style={{ width: '100%', padding: '9px 12px', resize: 'none' }} placeholder="Descripción breve del platillo..." />
+                    <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={2} style={{ width: '100%', padding: '9px 12px', resize: 'none' }} placeholder="Descripción breve..." />
                 </div>
                 <div style={{ gridColumn: 'span 2' }}>
-                    <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 6 }}>ICONO / FOTO</label>
+                    <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 6 }}>ICONO</label>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {EMOJIS.map(e => (
                             <button key={e} onClick={() => set('photo', e)}
@@ -91,7 +89,6 @@ function ProductForm({ initial, onSave, onCancel }) {
                     </button>
                 </div>
             </div>
-
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
                 <button onClick={onCancel} style={{ flex: 1, padding: 11, borderRadius: 10, background: theme.card, border: `1px solid ${theme.border}`, color: theme.muted, fontWeight: 600 }}>Cancelar</button>
                 <button onClick={handleSave} disabled={saving}
@@ -105,9 +102,13 @@ function ProductForm({ initial, onSave, onCancel }) {
 
 // ── OwnerPage ─────────────────────────────────────────────────────────────────
 export default function OwnerPage() {
-    const [authed, setAuthed] = useState(false)
-    const [pass, setPass] = useState('')
-    const [loginErr, setLoginErr] = useState(false)
+    const [session, setSession] = useState(null)
+    const [authLoading, setAuthLoading] = useState(true)
+    const [email, setEmail] = useState('')
+    const [password, setPassword] = useState('')
+    const [loginErr, setLoginErr] = useState('')
+    const [loggingIn, setLoggingIn] = useState(false)
+
     const [tab, setTab] = useState('resumen')
     const [products, setProducts] = useState([])
     const [bills, setBills] = useState([])
@@ -122,7 +123,19 @@ export default function OwnerPage() {
     const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7))
     const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString())
 
-    // ── Fetch ──────────────────────────────────────────────────────────────────
+    // ── Auth listener ──────────────────────────────────────────────────────────
+    useEffect(() => {
+        supabase.auth.getSession().then(({ data }) => {
+            setSession(data.session)
+            setAuthLoading(false)
+        })
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, sess) => {
+            setSession(sess)
+        })
+        return () => subscription.unsubscribe()
+    }, [])
+
+    // ── Fetch data ─────────────────────────────────────────────────────────────
     const fetchProducts = useCallback(async () => {
         const { data } = await supabase.from('products').select('*').order('category').order('name')
         if (data) setProducts(data)
@@ -130,17 +143,29 @@ export default function OwnerPage() {
 
     const fetchBills = useCallback(async () => {
         const { data } = await supabase
-            .from('bills')
-            .select('*, bill_items(*)')
+            .from('bills').select('*, bill_items(*)')
             .order('closed_at', { ascending: false })
         if (data) setBills(data)
     }, [])
 
     useEffect(() => {
-        if (!authed) return
+        if (!session) return
         setLoading(true)
         Promise.all([fetchProducts(), fetchBills()]).finally(() => setLoading(false))
-    }, [authed, fetchProducts, fetchBills])
+    }, [session, fetchProducts, fetchBills])
+
+    // ── Login ──────────────────────────────────────────────────────────────────
+    const handleLogin = async () => {
+        if (!email || !password) { setLoginErr('Ingresa email y contraseña'); return }
+        setLoggingIn(true); setLoginErr('')
+        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        if (error) setLoginErr(error.message === 'Invalid login credentials' ? 'Credenciales incorrectas' : error.message)
+        setLoggingIn(false)
+    }
+
+    const handleLogout = async () => {
+        await supabase.auth.signOut()
+    }
 
     // ── CRUD Productos ─────────────────────────────────────────────────────────
     const saveProduct = async (form) => {
@@ -164,10 +189,9 @@ export default function OwnerPage() {
         await fetchProducts()
     }
 
-    // ── Filtrado de bills ──────────────────────────────────────────────────────
+    // ── Filtrado bills ─────────────────────────────────────────────────────────
     const getWeekRange = (dateStr) => {
-        const d = new Date(dateStr)
-        const day = d.getDay()
+        const d = new Date(dateStr), day = d.getDay()
         const mon = new Date(d); mon.setDate(d.getDate() - day + (day === 0 ? -6 : 1))
         const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
         return [mon.toISOString().slice(0, 10), sun.toISOString().slice(0, 10)]
@@ -190,7 +214,6 @@ export default function OwnerPage() {
     }))
     const topProducts = Object.entries(productSales).sort((a, b) => b[1] - a[1]).slice(0, 5)
 
-    // ── Resumen del día ────────────────────────────────────────────────────────
     const today = new Date().toISOString().slice(0, 10)
     const todayBills = bills.filter(b => b.closed_at.slice(0, 10) === today)
     const todayTotal = todayBills.reduce((s, b) => s + Number(b.total), 0)
@@ -201,38 +224,61 @@ export default function OwnerPage() {
     }))
     const topToday = Object.entries(todaySales).sort((a, b) => b[1] - a[1]).slice(0, 3)
 
-    // ── LOGIN ──────────────────────────────────────────────────────────────────
-    const attempt = () => {
-        if (pass === ADMIN_PASSWORD) { setAuthed(true); setLoginErr(false) }
-        else { setLoginErr(true); setTimeout(() => setLoginErr(false), 1500) }
-    }
+    // ── Pantalla de carga inicial ──────────────────────────────────────────────
+    if (authLoading) return (
+        <>
+            <style>{globalCss}</style>
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg }}>
+                <Spinner />
+            </div>
+        </>
+    )
 
-    if (!authed) {
-        return (
-            <>
-                <style>{globalCss}</style>
-                <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
-                    <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 380 }}>
-                        <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 34, color: theme.accent, letterSpacing: 3, marginBottom: 4 }}>PANEL DEL DUEÑO</h1>
-                        <p style={{ color: theme.muted, fontSize: 13, marginBottom: 24 }}>Acceso restringido</p>
-                        <input
-                            type="password" value={pass}
-                            onChange={e => setPass(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && attempt()}
-                            style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${loginErr ? theme.red : theme.border}` }}
-                            placeholder="Contraseña"
-                            autoFocus
-                        />
-                        {loginErr && <p style={{ color: theme.red, fontSize: 12, marginBottom: 8 }}>Contraseña incorrecta</p>}
-                        <button onClick={attempt} style={{ width: '100%', padding: 14, borderRadius: 10, background: theme.accent, color: 'white', fontWeight: 700, fontSize: 15 }}>
-                            Entrar
-                        </button>
-                        <p style={{ color: theme.muted, fontSize: 11, marginTop: 10, textAlign: 'center' }}>Demo: admin123</p>
+    // ── LOGIN ──────────────────────────────────────────────────────────────────
+    if (!session) return (
+        <>
+            <style>{globalCss}</style>
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
+                <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 380 }}>
+                    <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 34, color: theme.accent, letterSpacing: 3, marginBottom: 4 }}>PANEL DEL DUEÑO</h1>
+                    <p style={{ color: theme.muted, fontSize: 13, marginBottom: 24 }}>Acceso restringido · Sapito</p>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div>
+                            <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 4 }}>EMAIL</label>
+                            <input
+                                type="email" value={email}
+                                onChange={e => setEmail(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                                style={{ width: '100%', padding: '12px 16px', fontSize: 15 }}
+                                placeholder="dueno@sapito.com"
+                                autoFocus
+                            />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 4 }}>CONTRASEÑA</label>
+                            <input
+                                type="password" value={password}
+                                onChange={e => setPassword(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                                style={{ width: '100%', padding: '12px 16px', fontSize: 15, border: `1px solid ${loginErr ? theme.red : theme.border}` }}
+                                placeholder="••••••••"
+                            />
+                        </div>
                     </div>
+
+                    {loginErr && <p style={{ color: theme.red, fontSize: 12, marginTop: 8 }}>{loginErr}</p>}
+
+                    <button
+                        onClick={handleLogin} disabled={loggingIn}
+                        style={{ width: '100%', padding: 14, borderRadius: 10, marginTop: 16, background: loggingIn ? theme.border : theme.accent, color: 'white', fontWeight: 700, fontSize: 15 }}
+                    >
+                        {loggingIn ? 'Entrando...' : 'Entrar'}
+                    </button>
                 </div>
-            </>
-        )
-    }
+            </div>
+        </>
+    )
 
     // ── DASHBOARD ──────────────────────────────────────────────────────────────
     return (
@@ -242,10 +288,10 @@ export default function OwnerPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                     <div>
                         <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 38, color: theme.accent, letterSpacing: 3, lineHeight: 1 }}>PANEL DEL DUEÑO</h1>
-                        <p style={{ color: theme.muted, fontSize: 13 }}>El Rincón</p>
+                        <p style={{ color: theme.muted, fontSize: 13 }}>{session.user.email}</p>
                     </div>
-                    <button onClick={() => setAuthed(false)} style={{ padding: '7px 14px', borderRadius: 8, background: theme.card, border: `1px solid ${theme.border}`, color: theme.muted, fontSize: 12 }}>
-                        Salir
+                    <button onClick={handleLogout} style={{ padding: '7px 14px', borderRadius: 8, background: theme.card, border: `1px solid ${theme.border}`, color: theme.muted, fontSize: 12 }}>
+                        Cerrar sesión
                     </button>
                 </div>
 
@@ -261,10 +307,10 @@ export default function OwnerPage() {
 
                 {loading ? <Spinner /> : (
                     <>
-                        {/* ── RESUMEN ────────────────────────────────────────────────── */}
+                        {/* ── RESUMEN ─────────────────────────────────────────────── */}
                         {tab === 'resumen' && (
                             <div className="fade-in">
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, marginBottom: 20 }}>
                                     <StatCard icon="💰" label="Ventas Hoy" value={`$${todayTotal.toFixed(2)}`} color={theme.accent} />
                                     <StatCard icon="🧾" label="Cuentas Cerradas" value={todayBills.length} color={theme.green} />
                                     <StatCard icon="📊" label="Ticket Promedio" value={todayBills.length ? `$${(todayTotal / todayBills.length).toFixed(0)}` : '$0'} color={theme.blue} />
@@ -281,16 +327,13 @@ export default function OwnerPage() {
                                         ))}
                                     </div>
                                 )}
-                                {todayBills.length === 0 && (
-                                    <div style={{ textAlign: 'center', color: theme.muted, padding: '40px 0' }}>Sin ventas registradas hoy</div>
-                                )}
+                                {todayBills.length === 0 && <div style={{ textAlign: 'center', color: theme.muted, padding: '40px 0' }}>Sin ventas registradas hoy</div>}
                             </div>
                         )}
 
-                        {/* ── HISTORIAL ──────────────────────────────────────────────── */}
+                        {/* ── HISTORIAL ───────────────────────────────────────────── */}
                         {tab === 'historial' && (
                             <div className="fade-in">
-                                {/* Filtros */}
                                 <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                                     {['dia', 'semana', 'mes', 'ano'].map(m => (
                                         <button key={m} onClick={() => setFilterMode(m)}
@@ -303,14 +346,10 @@ export default function OwnerPage() {
                                     {filterMode === 'mes' && <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} style={{ padding: '6px 10px', fontSize: 13 }} />}
                                     {filterMode === 'ano' && <input type="number" value={filterYear} onChange={e => setFilterYear(e.target.value)} style={{ padding: '6px 10px', fontSize: 13, width: 90 }} />}
                                 </div>
-
-                                {/* Resumen */}
                                 <div style={{ background: theme.card, borderRadius: 10, padding: '10px 16px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${theme.border}` }}>
                                     <span style={{ color: theme.muted, fontSize: 13 }}>{filteredBills.length} cuenta(s)</span>
                                     <span style={{ fontFamily: 'Bebas Neue', fontSize: 22, color: theme.accent }}>Total: ${totalRevenue.toFixed(2)}</span>
                                 </div>
-
-                                {/* Top productos periodo */}
                                 {topProducts.length > 0 && (
                                     <div style={{ background: theme.card, borderRadius: 12, padding: 14, border: `1px solid ${theme.border}`, marginBottom: 14 }}>
                                         <p style={{ color: theme.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: .5, marginBottom: 8 }}>Más vendido en el período</p>
@@ -322,7 +361,6 @@ export default function OwnerPage() {
                                         ))}
                                     </div>
                                 )}
-
                                 {filteredBills.length === 0 ? (
                                     <div style={{ textAlign: 'center', color: theme.muted, padding: '40px 0' }}>Sin registros para este período</div>
                                 ) : (
@@ -354,7 +392,7 @@ export default function OwnerPage() {
                             </div>
                         )}
 
-                        {/* ── MENÚ CRUD ──────────────────────────────────────────────── */}
+                        {/* ── MENÚ CRUD ────────────────────────────────────────────── */}
                         {tab === 'menu' && (
                             <div className="fade-in">
                                 {!showNew && !editProduct && (
@@ -365,7 +403,6 @@ export default function OwnerPage() {
                                 )}
                                 {showNew && <ProductForm initial={null} onSave={saveProduct} onCancel={() => setShowNew(false)} />}
                                 {editProduct && <ProductForm initial={editProduct} onSave={saveProduct} onCancel={() => setEditProduct(null)} />}
-
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                     {products.map(p => (
                                         <div key={p.id} style={{ background: theme.card, borderRadius: 12, border: `1px solid ${theme.border}`, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -373,25 +410,16 @@ export default function OwnerPage() {
                                             <div style={{ flex: 1 }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                     <span style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</span>
-                                                    {!p.available && (
-                                                        <span style={{ background: theme.red + '22', color: theme.red, border: `1px solid ${theme.red}44`, borderRadius: 999, fontSize: 10, fontWeight: 700, padding: '2px 8px', textTransform: 'uppercase' }}>Agotado</span>
-                                                    )}
+                                                    {!p.available && <span style={{ background: theme.red + '22', color: theme.red, border: `1px solid ${theme.red}44`, borderRadius: 999, fontSize: 10, fontWeight: 700, padding: '2px 8px' }}>Agotado</span>}
                                                 </div>
                                                 <div style={{ color: theme.muted, fontSize: 12, marginTop: 2 }}>{p.category} · ${Number(p.price).toFixed(2)}</div>
                                             </div>
                                             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                                                <button onClick={() => toggleAvailable(p)}
-                                                    style={{ padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 600, background: p.available ? theme.green + '22' : theme.gold + '22', color: p.available ? theme.green : theme.gold, border: `1px solid ${p.available ? theme.green : theme.gold}44` }}>
+                                                <button onClick={() => toggleAvailable(p)} style={{ padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 600, background: p.available ? theme.green + '22' : theme.gold + '22', color: p.available ? theme.green : theme.gold, border: `1px solid ${p.available ? theme.green : theme.gold}44` }}>
                                                     {p.available ? 'Disponible' : 'Agotado'}
                                                 </button>
-                                                <button onClick={() => { setEditProduct(p); setShowNew(false) }}
-                                                    style={{ padding: '5px 10px', borderRadius: 7, fontSize: 11, background: theme.surface, border: `1px solid ${theme.border}`, color: theme.muted }}>
-                                                    Editar
-                                                </button>
-                                                <button onClick={() => deleteProduct(p.id)}
-                                                    style={{ padding: '5px 10px', borderRadius: 7, fontSize: 11, background: theme.red + '22', color: theme.red, border: `1px solid ${theme.red}44` }}>
-                                                    Borrar
-                                                </button>
+                                                <button onClick={() => { setEditProduct(p); setShowNew(false) }} style={{ padding: '5px 10px', borderRadius: 7, fontSize: 11, background: theme.surface, border: `1px solid ${theme.border}`, color: theme.muted }}>Editar</button>
+                                                <button onClick={() => deleteProduct(p.id)} style={{ padding: '5px 10px', borderRadius: 7, fontSize: 11, background: theme.red + '22', color: theme.red, border: `1px solid ${theme.red}44` }}>Borrar</button>
                                             </div>
                                         </div>
                                     ))}
