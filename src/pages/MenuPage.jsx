@@ -456,9 +456,6 @@ export default function MenuPage() {
     const [showAccountToast, setShowAccountToast] = useState(false)
     const [showSplitModal, setShowSplitModal] = useState(false)
     const [splitSent, setSplitSent] = useState(false)
-    const [splitBillRequest, setSplitBillRequest] = useState(null)
-    const [splitBillNew, setSplitBillNew] = useState(false)
-    const [showSplitBillsDialog, setShowSplitBillsDialog] = useState(false)
     const [stateHydrated, setStateHydrated] = useState(false)
 
     if (!tableId) return (
@@ -522,7 +519,7 @@ export default function MenuPage() {
                 .from('split_requests')
                 .select('id')
                 .eq('table_id', tableNum)
-                .in('status', ['pending', 'sent'])
+                .eq('status', 'pending')
                 .limit(1)
                 .maybeSingle()
 
@@ -560,40 +557,6 @@ export default function MenuPage() {
         const ch = supabase.channel(`client-bill-${tableId}-${Date.now()}`)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bills', filter: `table_id=eq.${tableId}` }, fetchLatestBill)
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bills', filter: `table_id=eq.${tableId}` }, fetchLatestBill)
-            .subscribe()
-        return () => supabase.removeChannel(ch)
-    }, [tableId, tableNum])
-
-    // Escuchar cuentas divididas enviadas al cliente
-    useEffect(() => {
-        if (!tableId) return
-
-        const fetchSplitBill = async () => {
-            const { data } = await supabase
-                .from('split_requests')
-                .select('*, split_people(*, split_items(*))')
-                .eq('table_id', tableNum)
-                .eq('status', 'sent')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle()
-
-            if (data) {
-                setSplitBillRequest(data)
-                setSplitBillNew(true)
-                setShowSplitBillsDialog(true)
-                setSplitSent(true)
-            } else {
-                setSplitBillRequest(null)
-                setSplitBillNew(false)
-            }
-        }
-
-        fetchSplitBill()
-        const ch = supabase.channel(`client-split-${tableId}-${Date.now()}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'split_requests', filter: `table_id=eq.${tableId}` }, fetchSplitBill)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'split_people' }, fetchSplitBill)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'split_items' }, fetchSplitBill)
             .subscribe()
         return () => supabase.removeChannel(ch)
     }, [tableId, tableNum])
@@ -702,7 +665,7 @@ export default function MenuPage() {
             )}
 
             {showBillModal && bill && <BillModal bill={bill} onClose={() => { setShowBillModal(false); setBillNew(false) }} />}
-            {showSplitBillsDialog && splitBillRequest && <SplitBillsModal splitRequest={splitBillRequest} onClose={() => { setShowSplitBillsDialog(false); setSplitBillNew(false) }} />}
+            {showSplitBillsModal && splitBillRequest && <SplitBillsModal splitRequest={splitBillRequest} onClose={() => { setShowSplitBillsModal(false); setSplitBillNew(false) }} />}
             {showSplitModal && <SplitModal tableId={tableId} sessionOrderIds={sessionOrderIds} onClose={() => setShowSplitModal(false)} onSend={handleSendSplit} />}
 
             <div style={{ background: theme.bg, minHeight: '100vh' }}>
@@ -735,7 +698,7 @@ export default function MenuPage() {
 
                             {splitBillRequest && (
                                 <button
-                                    onClick={() => { setShowSplitBillsDialog(true); setSplitBillNew(false) }}
+                                    onClick={() => { setShowSplitBillsModal(true); setSplitBillNew(false) }}
                                     style={{
                                         position: 'relative', padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                                         background: theme.blue + '22', color: theme.blue, border: `1px solid ${theme.blue}66`, whiteSpace: 'nowrap',
@@ -814,7 +777,7 @@ export default function MenuPage() {
 
                 {/* Banner: cuentas divididas listas */}
                 {splitBillRequest && !bill && (
-                    <div className="scale-in" onClick={() => { setShowSplitBillsDialog(true); setSplitBillNew(false) }} style={{ margin: '16px 16px 0', background: '#001327', border: `1px solid ${theme.blue}`, borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                    <div className="scale-in" onClick={() => { setShowSplitBillsModal(true); setSplitBillNew(false) }} style={{ margin: '16px 16px 0', background: '#001327', border: `1px solid ${theme.blue}`, borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
                         <span style={{ fontSize: 22 }}>🧾</span>
                         <div style={{ flex: 1 }}>
                             <div style={{ color: theme.blue, fontWeight: 700, fontSize: 14 }}>¡Tus cuentas divididas están listas!</div>
