@@ -157,6 +157,52 @@ function BillModal({ bill, onClose }) {
     )
 }
 
+function SplitBillsModal({ splitRequest, onClose }) {
+    const [activePerson, setActivePerson] = useState(0)
+    const people = splitRequest?.split_people || []
+    const person = people[activePerson]
+
+    if (!person) return null
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: '#000d', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div className="scale-in" style={{ width: '100%', maxWidth: 460, maxHeight: '92vh', overflow: 'auto', borderRadius: 18, background: theme.card, border: `1px solid ${theme.blue}66` }}>
+                <div style={{ padding: '14px 18px', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'Bebas Neue', fontSize: 20, color: theme.blue, letterSpacing: 2 }}>CUENTAS DIVIDIDAS — MESA #{splitRequest.table_id}</span>
+                    <button onClick={onClose} style={{ padding: '5px 11px', borderRadius: 8, fontSize: 16, background: theme.surface, border: `1px solid ${theme.border}`, color: theme.muted }}>✕</button>
+                </div>
+                <div style={{ padding: 16 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                        {people.map((p, i) => (
+                            <button key={p.id || i} onClick={() => setActivePerson(i)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: activePerson === i ? theme.blue : theme.surface, color: activePerson === i ? 'white' : theme.text, border: `1px solid ${activePerson === i ? theme.blue : theme.border}` }}>
+                                {p.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div style={{ background: '#fffef5', borderRadius: 12, border: '2px dashed #c8b97a', padding: '16px 14px', color: '#1a1a00' }}>
+                        <div style={{ textAlign: 'center', marginBottom: 10, borderBottom: '1px dashed #c8b97a', paddingBottom: 10 }}>
+                            <div style={{ fontFamily: 'Bebas Neue', fontSize: 24, letterSpacing: 2 }}>SAPITO</div>
+                            <div style={{ fontSize: 11, color: '#777' }}>CUENTA INDIVIDUAL</div>
+                            <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>{person.label}</div>
+                        </div>
+                        {(person.split_items || []).map((it, idx) => (
+                            <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: '1px solid #eee8cc', padding: '5px 0' }}>
+                                <span>{it.qty}× {it.name}</span>
+                                <span>${(Number(it.price) * Number(it.qty)).toFixed(2)}</span>
+                            </div>
+                        ))}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: '2px solid #1a1a00' }}>
+                            <span style={{ fontWeight: 700 }}>TOTAL $</span>
+                            <span style={{ fontFamily: 'Bebas Neue', fontSize: 28, color: '#cc3300' }}>{Number(person.subtotal).toFixed(2)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 // ── SplitModal — el cliente divide la cuenta ──────────────────────────────────
 // Muestra todos los items del pedido; el cliente asigna cada uno a una persona
 // arrastrando o tocando el nombre de persona.
@@ -391,6 +437,8 @@ function SplitModal({ tableId, sessionOrderIds, onClose, onSend }) {
 // ── Main MenuPage ─────────────────────────────────────────────────────────────
 export default function MenuPage() {
     const tableId = useTableId()
+    const tableNum = Number.parseInt(tableId, 10)
+    const storageKey = tableId ? `sapito:menu-state:${tableId}` : null
 
     const [products, setProducts] = useState([])
     const [loading, setLoading] = useState(true)
@@ -408,6 +456,10 @@ export default function MenuPage() {
     const [showAccountToast, setShowAccountToast] = useState(false)
     const [showSplitModal, setShowSplitModal] = useState(false)
     const [splitSent, setSplitSent] = useState(false)
+    const [splitBillRequest, setSplitBillRequest] = useState(null)
+    const [splitBillNew, setSplitBillNew] = useState(false)
+    const [showSplitBillsModal, setShowSplitBillsModal] = useState(false)
+    const [stateHydrated, setStateHydrated] = useState(false)
 
     if (!tableId) return (
         <>
@@ -430,16 +482,78 @@ export default function MenuPage() {
         load()
     }, [])
 
+    // Restaurar estado de sesión para no perder pedidos/cuenta al recargar
+    useEffect(() => {
+        if (!tableId || Number.isNaN(tableNum)) return
+
+        const hydrate = async () => {
+            // 1) Restaurar desde localStorage
+            if (storageKey) {
+                const raw = window.localStorage.getItem(storageKey)
+                if (raw) {
+                    try {
+                        const saved = JSON.parse(raw)
+                        if (Array.isArray(saved.sessionOrderIds)) setSessionOrderIds([...new Set(saved.sessionOrderIds)])
+                        if (saved.accountRequested) setAccountRequested(true)
+                        if (saved.splitSent) setSplitSent(true)
+                    } catch {
+                        // Si el JSON está corrupto, se ignora y se rehidrata desde BD.
+                    }
+                }
+            }
+
+            // 2) Rehidratar también desde BD por seguridad
+            const { data: openOrders } = await supabase
+                .from('orders')
+                .select('id,request_account,account_handled')
+                .eq('table_id', tableNum)
+                .eq('closed', false)
+                .order('created_at', { ascending: true })
+
+            if (openOrders) {
+                const orderIds = openOrders.filter(o => !o.request_account).map(o => o.id)
+                if (orderIds.length) setSessionOrderIds(prev => [...new Set([...prev, ...orderIds])])
+
+                const hasPendingAccountRequest = openOrders.some(o => o.request_account && !o.account_handled)
+                if (hasPendingAccountRequest) setAccountRequested(true)
+            }
+
+            const { data: splitReq } = await supabase
+                .from('split_requests')
+                .select('id')
+                .eq('table_id', tableNum)
+                .in('status', ['pending', 'sent'])
+                .limit(1)
+                .maybeSingle()
+
+            if (splitReq) setSplitSent(true)
+            setStateHydrated(true)
+        }
+
+        hydrate()
+    }, [storageKey, tableId, tableNum])
+
+    // Persistir estado mínimo de la sesión del cliente
+    useEffect(() => {
+        if (!storageKey || !stateHydrated) return
+
+        window.localStorage.setItem(storageKey, JSON.stringify({
+            sessionOrderIds,
+            accountRequested,
+            splitSent,
+        }))
+    }, [storageKey, stateHydrated, sessionOrderIds, accountRequested, splitSent])
+
     // Escuchar bill
     useEffect(() => {
         if (!tableId) return
         const checkBill = async () => {
-            const { data } = await supabase.from('bills').select('*, bill_items(*)').eq('table_id', parseInt(tableId)).eq('status', 'sent').order('closed_at', { ascending: false }).limit(1).maybeSingle()
+            const { data } = await supabase.from('bills').select('*, bill_items(*)').eq('table_id', tableNum).eq('status', 'sent').order('closed_at', { ascending: false }).limit(1).maybeSingle()
             if (data) setBill(data)
         }
         checkBill()
         const fetchLatestBill = async () => {
-            const { data } = await supabase.from('bills').select('*, bill_items(*)').eq('table_id', parseInt(tableId)).eq('status', 'sent').order('closed_at', { ascending: false }).limit(1).maybeSingle()
+            const { data } = await supabase.from('bills').select('*, bill_items(*)').eq('table_id', tableNum).eq('status', 'sent').order('closed_at', { ascending: false }).limit(1).maybeSingle()
             if (data) { setBill(data); setBillNew(true); setShowBillModal(true) }
             else { setBill(null); setBillNew(false); setShowBillModal(false) }
         }
@@ -448,7 +562,41 @@ export default function MenuPage() {
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bills', filter: `table_id=eq.${tableId}` }, fetchLatestBill)
             .subscribe()
         return () => supabase.removeChannel(ch)
-    }, [tableId])
+    }, [tableId, tableNum])
+
+    // Escuchar cuentas divididas enviadas al cliente
+    useEffect(() => {
+        if (!tableId) return
+
+        const fetchSplitBill = async () => {
+            const { data } = await supabase
+                .from('split_requests')
+                .select('*, split_people(*, split_items(*))')
+                .eq('table_id', tableNum)
+                .eq('status', 'sent')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+
+            if (data) {
+                setSplitBillRequest(data)
+                setSplitBillNew(true)
+                setShowSplitBillsModal(true)
+                setSplitSent(true)
+            } else {
+                setSplitBillRequest(null)
+                setSplitBillNew(false)
+            }
+        }
+
+        fetchSplitBill()
+        const ch = supabase.channel(`client-split-${tableId}-${Date.now()}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'split_requests', filter: `table_id=eq.${tableId}` }, fetchSplitBill)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'split_people' }, fetchSplitBill)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'split_items' }, fetchSplitBill)
+            .subscribe()
+        return () => supabase.removeChannel(ch)
+    }, [tableId, tableNum])
 
     // Cart
     const addToCart = (product) => setCart(c => { const ex = c.find(i => i.id === product.id); return ex ? c.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i) : [...c, { ...product, qty: 1 }] })
@@ -462,10 +610,10 @@ export default function MenuPage() {
         if (!cart.length || submitting) return
         setSubmitting(true)
         try {
-            const { data: order, error: oErr } = await supabase.from('orders').insert({ table_id: parseInt(tableId) }).select().single()
+            const { data: order, error: oErr } = await supabase.from('orders').insert({ table_id: tableNum }).select().single()
             if (oErr) throw oErr
             await supabase.from('order_items').insert(cart.map(i => ({ order_id: order.id, product_id: i.id, name: i.name, price: i.price, photo: i.photo, qty: i.qty, status: 'recibido' })))
-            await supabase.from('tables').update({ status: 'active' }).eq('id', parseInt(tableId))
+            await supabase.from('tables').update({ status: 'active' }).eq('id', tableNum)
             setSessionOrderIds(prev => [...prev, order.id])
             setCart([])
             setSubmitted(true)
@@ -481,7 +629,7 @@ export default function MenuPage() {
         if (!window.confirm(`¿Solicitar la cuenta para la Mesa #${tableId}?`)) return
         setRequestingAccount(true)
         try {
-            await supabase.from('orders').insert({ table_id: parseInt(tableId), request_account: true })
+            await supabase.from('orders').insert({ table_id: tableNum, request_account: true })
             setAccountRequested(true)
             setShowAccountToast(true)
             setTimeout(() => setShowAccountToast(false), 4000)
@@ -495,7 +643,7 @@ export default function MenuPage() {
         // Insertar split_request
         const { data: sr, error } = await supabase
             .from('split_requests')
-            .insert({ table_id: parseInt(tableId), num_people: people.length, status: 'pending' })
+            .insert({ table_id: tableNum, num_people: people.length, status: 'pending' })
             .select().single()
         if (error || !sr) { alert('Error al enviar solicitud'); return }
 
@@ -511,7 +659,7 @@ export default function MenuPage() {
         }
 
         // Insertar orden con request_account para notificar a cocina
-        await supabase.from('orders').insert({ table_id: parseInt(tableId), request_account: true })
+        await supabase.from('orders').insert({ table_id: tableNum, request_account: true })
 
         setShowSplitModal(false)
         setSplitSent(true)
@@ -554,6 +702,7 @@ export default function MenuPage() {
             )}
 
             {showBillModal && bill && <BillModal bill={bill} onClose={() => { setShowBillModal(false); setBillNew(false) }} />}
+            {showSplitBillsModal && splitBillRequest && <SplitBillsModal splitRequest={splitBillRequest} onClose={() => { setShowSplitBillsModal(false); setSplitBillNew(false) }} />}
             {showSplitModal && <SplitModal tableId={tableId} sessionOrderIds={sessionOrderIds} onClose={() => setShowSplitModal(false)} onSend={handleSendSplit} />}
 
             <div style={{ background: theme.bg, minHeight: '100vh' }}>
@@ -568,7 +717,7 @@ export default function MenuPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
 
                             {/* Botón dividir cuenta */}
-                            {sessionOrderIds.length > 0 && !bill && (
+                            {sessionOrderIds.length > 0 && !bill && !splitBillRequest && (
                                 <button
                                     onClick={() => setShowSplitModal(true)}
                                     disabled={splitSent}
@@ -581,6 +730,19 @@ export default function MenuPage() {
                                     }}
                                 >
                                     {splitSent ? '✂️ Dividida' : '✂️ Dividir'}
+                                </button>
+                            )}
+
+                            {splitBillRequest && (
+                                <button
+                                    onClick={() => { setShowSplitBillsModal(true); setSplitBillNew(false) }}
+                                    style={{
+                                        position: 'relative', padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                        background: theme.blue + '22', color: theme.blue, border: `1px solid ${theme.blue}66`, whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    🧾 Dividida
+                                    {splitBillNew && <span style={{ position: 'absolute', top: -4, right: -4, width: 10, height: 10, borderRadius: '50%', background: theme.green, animation: 'pulse 1s infinite', border: `2px solid ${theme.surface}` }} />}
                                 </button>
                             )}
 
@@ -640,13 +802,25 @@ export default function MenuPage() {
                 )}
 
                 {/* Banner: división solicitada */}
-                {splitSent && !bill && (
+                {splitSent && !bill && !splitBillRequest && (
                     <div style={{ margin: '16px 16px 0', background: '#001a1a', border: `1px solid ${theme.blue}55`, borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
                         <span style={{ fontSize: 20 }}>✂️</span>
                         <div>
                             <div style={{ color: theme.blue, fontWeight: 600, fontSize: 13 }}>División de cuenta solicitada</div>
                             <div style={{ color: theme.muted, fontSize: 11, marginTop: 2 }}>El encargado cobrará a cada persona por separado.</div>
                         </div>
+                    </div>
+                )}
+
+                {/* Banner: cuentas divididas listas */}
+                {splitBillRequest && !bill && (
+                    <div className="scale-in" onClick={() => { setShowSplitBillsModal(true); setSplitBillNew(false) }} style={{ margin: '16px 16px 0', background: '#001327', border: `1px solid ${theme.blue}`, borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                        <span style={{ fontSize: 22 }}>🧾</span>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ color: theme.blue, fontWeight: 700, fontSize: 14 }}>¡Tus cuentas divididas están listas!</div>
+                            <div style={{ color: theme.muted, fontSize: 11, marginTop: 2 }}>Toca aquí para ver cada cuenta individual.</div>
+                        </div>
+                        <span style={{ color: theme.blue, fontSize: 18 }}>›</span>
                     </div>
                 )}
 

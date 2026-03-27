@@ -226,12 +226,27 @@ function SendBillModal({ tableId, orders, onClose, onSend, previousBill }) {
 }
 
 // ── SplitPayModal — cobrar persona por persona ────────────────────────────────
-function SplitPayModal({ tableId, splitRequest, onClose, onAllPaid }) {
+function SplitPayModal({ tableId, splitRequest, onClose, onAllPaid, onRefresh }) {
     // splitRequest tiene .split_people con .[].split_items
     const [people, setPeople] = useState(splitRequest.split_people || [])
+    const [initialPeople, setInitialPeople] = useState(splitRequest.split_people || [])
     const [confirming, setConfirming] = useState(null) // personId en proceso
+    const [editing, setEditing] = useState(splitRequest.status !== 'sent')
+    const [savingEdits, setSavingEdits] = useState(false)
+    const [sendingToClient, setSendingToClient] = useState(false)
 
-    const allPaid = people.every(p => p.paid)
+    useEffect(() => {
+        setPeople(splitRequest.split_people || [])
+        setInitialPeople(splitRequest.split_people || [])
+        setEditing(splitRequest.status !== 'sent')
+    }, [splitRequest])
+
+    const calcSubtotal = (items = []) => items.reduce((s, it) => s + Number(it.price || 0) * Number(it.qty || 0), 0)
+    const allPaid = people.length > 0 && people.every(p => p.paid)
+
+    const updatePeopleSubtotal = (updater) => {
+        setPeople(prev => updater(prev).map(p => ({ ...p, subtotal: calcSubtotal(p.split_items || []) })))
+    }
 
     const handlePayPerson = async (personId) => {
         setConfirming(personId)
@@ -240,17 +255,97 @@ function SplitPayModal({ tableId, splitRequest, onClose, onAllPaid }) {
             .update({ paid: true, paid_at: new Date().toISOString() })
             .eq('id', personId)
         if (!error) {
-            setPeople(prev => prev.map(p => p.id === personId ? { ...p, paid: true } : p))
+            const updated = people.map(p => p.id === personId ? { ...p, paid: true, paid_at: new Date().toISOString() } : p)
+            setPeople(updated)
+            if (updated.every(p => p.paid)) {
+                await onAllPaid()
+                setConfirming(null)
+                return
+            }
         }
         setConfirming(null)
     }
 
-    const handleClose = async () => {
-        if (allPaid) {
-            await onAllPaid()
-        } else {
-            onClose()
+    const updatePersonItem = (personId, itemIdx, patch) => {
+        updatePeopleSubtotal(prev => prev.map(p => {
+            if (p.id !== personId) return p
+            const items = [...(p.split_items || [])]
+            items[itemIdx] = { ...items[itemIdx], ...patch }
+            return { ...p, split_items: items }
+        }))
+    }
+
+    const removePersonItem = (personId, itemIdx) => {
+        updatePeopleSubtotal(prev => prev.map(p => {
+            if (p.id !== personId) return p
+            const items = [...(p.split_items || [])]
+            items.splice(itemIdx, 1)
+            return { ...p, split_items: items }
+        }))
+    }
+
+    const addPersonItem = (personId) => {
+        const name = window.prompt('Nombre del producto')
+        if (!name?.trim()) return
+        const priceRaw = window.prompt('Precio unitario', '0')
+        const qtyRaw = window.prompt('Cantidad', '1')
+        const price = Number(priceRaw)
+        const qty = Number(qtyRaw)
+        if (Number.isNaN(price) || price < 0 || Number.isNaN(qty) || qty <= 0) {
+            alert('Datos inválidos')
+            return
         }
+        updatePeopleSubtotal(prev => prev.map(p => {
+            if (p.id !== personId) return p
+            return {
+                ...p,
+                split_items: [...(p.split_items || []), { name: name.trim(), price, qty }],
+            }
+        }))
+    }
+
+    const saveSplitEdits = async () => {
+        setSavingEdits(true)
+        try {
+            for (const person of people) {
+                const original = initialPeople.find(p => p.id === person.id)
+                const originalIds = new Set((original?.split_items || []).map(it => it.id).filter(Boolean))
+                const currentItems = (person.split_items || []).filter(it => it.name?.trim() && Number(it.qty) > 0)
+                const currentIds = new Set(currentItems.map(it => it.id).filter(Boolean))
+
+                const idsToDelete = [...originalIds].filter(id => !currentIds.has(id))
+                if (idsToDelete.length) {
+                    await supabase.from('split_items').delete().in('id', idsToDelete)
+                }
+
+                for (const item of currentItems) {
+                    const payload = { split_person_id: person.id, name: item.name.trim(), price: Number(item.price || 0), qty: Number(item.qty || 1) }
+                    if (item.id) await supabase.from('split_items').update(payload).eq('id', item.id)
+                    else await supabase.from('split_items').insert(payload)
+                }
+
+                await supabase.from('split_people').update({ subtotal: calcSubtotal(currentItems) }).eq('id', person.id)
+            }
+            await onRefresh()
+            return true
+        } catch (e) {
+            console.error(e)
+            alert('No se pudieron guardar los cambios de la división')
+            return false
+        } finally {
+            setSavingEdits(false)
+        }
+    }
+
+    const handleSendToClient = async () => {
+        setSendingToClient(true)
+        const ok = await saveSplitEdits()
+        if (ok) {
+            await supabase.from('split_requests').update({ status: 'sent' }).eq('id', splitRequest.id)
+            setEditing(false)
+            await onRefresh()
+        }
+        setSendingToClient(false)
     }
 
     const totalPaid = people.filter(p => p.paid).reduce((s, p) => s + Number(p.subtotal), 0)
@@ -310,10 +405,25 @@ function SplitPayModal({ tableId, splitRequest, onClose, onAllPaid }) {
                                         <div style={{ padding: '8px 14px', borderBottom: `1px solid ${theme.border}` }}>
                                             {items.map((it, ii) => (
                                                 <div key={ii} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0', color: theme.muted }}>
-                                                    <span>{it.qty}× {it.name}</span>
+                                                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        {editing && !person.paid && (
+                                                            <>
+                                                                <input type="number" min="1" value={it.qty} onChange={e => updatePersonItem(person.id, ii, { qty: Math.max(1, Number(e.target.value) || 1) })} style={{ width: 50, textAlign: 'center', padding: '2px 5px', fontSize: 12 }} />
+                                                                <input type="text" value={it.name} onChange={e => updatePersonItem(person.id, ii, { name: e.target.value })} style={{ width: 120, padding: '2px 6px', fontSize: 12 }} />
+                                                                <input type="number" min="0" step="0.5" value={it.price} onChange={e => updatePersonItem(person.id, ii, { price: Number(e.target.value) || 0 })} style={{ width: 70, textAlign: 'right', padding: '2px 5px', fontSize: 12 }} />
+                                                                <button onClick={() => removePersonItem(person.id, ii)} style={{ padding: '2px 6px', borderRadius: 6, fontSize: 11, background: theme.red + '22', color: theme.red, border: `1px solid ${theme.red}44` }}>✕</button>
+                                                            </>
+                                                        )}
+                                                        {!editing || person.paid ? `${it.qty}× ${it.name}` : null}
+                                                    </span>
                                                     <span>${(Number(it.price) * it.qty).toFixed(0)}</span>
                                                 </div>
                                             ))}
+                                            {editing && !person.paid && (
+                                                <button onClick={() => addPersonItem(person.id)} style={{ marginTop: 8, width: '100%', padding: '6px 0', borderRadius: 8, background: 'transparent', color: color, border: `1px dashed ${color}77`, fontSize: 12, fontWeight: 700 }}>
+                                                    + Agregar producto
+                                                </button>
+                                            )}
                                         </div>
                                     )}
 
@@ -368,8 +478,26 @@ function SplitPayModal({ tableId, splitRequest, onClose, onAllPaid }) {
                         <button onClick={onClose} style={{ flex: 1, padding: 12, borderRadius: 10, background: theme.surface, border: `1px solid ${theme.border}`, color: theme.muted, fontWeight: 600 }}>
                             {allPaid ? 'Cerrar' : 'Volver'}
                         </button>
+                        {editing && (
+                            <button
+                                onClick={saveSplitEdits}
+                                disabled={savingEdits}
+                                style={{ flex: 1.4, padding: 12, borderRadius: 10, fontWeight: 700, fontSize: 14, background: savingEdits ? theme.border : theme.blue, color: 'white' }}
+                            >
+                                {savingEdits ? 'Guardando...' : '💾 Guardar edición'}
+                            </button>
+                        )}
+                        {!allPaid && (
+                            <button
+                                onClick={handleSendToClient}
+                                disabled={sendingToClient || savingEdits}
+                                style={{ flex: 1.7, padding: 12, borderRadius: 10, fontWeight: 700, fontSize: 14, background: sendingToClient ? theme.border : theme.accent, color: 'white' }}
+                            >
+                                {sendingToClient ? 'Enviando...' : '📤 Enviar cuentas al cliente'}
+                            </button>
+                        )}
                         {allPaid && (
-                            <button onClick={handleClose} style={{ flex: 2, padding: 12, borderRadius: 10, fontWeight: 700, fontSize: 15, background: theme.green, color: 'white' }}>
+                            <button onClick={onAllPaid} style={{ flex: 2, padding: 12, borderRadius: 10, fontWeight: 700, fontSize: 15, background: theme.green, color: 'white' }}>
                                 ✓ Todos pagaron — Cerrar mesa
                             </button>
                         )}
@@ -499,7 +627,7 @@ export default function KitchenPage() {
         const { data } = await supabase
             .from('split_requests')
             .select('*, split_people(*, split_items(*))')
-            .eq('status', 'pending')
+            .in('status', ['pending', 'sent'])
         if (data) {
             const map = {}
             data.forEach(sr => { map[sr.table_id] = sr })
@@ -663,8 +791,8 @@ export default function KitchenPage() {
                     <div style={{ background: '#000d1a', border: `1px solid ${theme.blue}`, borderRadius: 12, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
                         <span style={{ fontSize: 22 }}>✂️</span>
                         <div>
-                            <div style={{ color: theme.blue, fontWeight: 700 }}>División de cuenta solicitada</div>
-                            <div style={{ color: theme.muted, fontSize: 12 }}>Mesa(s): {Object.keys(splitRequests).map(t => `#${t}`).join(', ')} — toca la mesa para cobrar por persona</div>
+                            <div style={{ color: theme.blue, fontWeight: 700 }}>División de cuenta activa</div>
+                            <div style={{ color: theme.muted, fontSize: 12 }}>Mesa(s): {Object.keys(splitRequests).map(t => `#${t}`).join(', ')} — toca la mesa para editar/enviar/cobrar por persona</div>
                         </div>
                     </div>
                 )}
@@ -766,7 +894,8 @@ export default function KitchenPage() {
                                                         : isFree ? theme.green + '55'
                                                             : theme.border
 
-                                    const label = hasSplit ? 'División solicitada'
+                                    const splitStatus = splitRequests[t]?.status
+                                    const label = hasSplit ? (splitStatus === 'sent' ? 'División enviada' : 'División solicitada')
                                         : needsUpdate ? 'Pedidos nuevos'
                                             : billSent ? 'Cuenta enviada'
                                                 : hasOrders ? 'Activa'
@@ -791,7 +920,7 @@ export default function KitchenPage() {
                                             <span style={{ fontSize: 24 }}>🪑</span>
                                             <span style={{ fontSize: 13, fontWeight: 700, color: labelColor }}>Mesa {t}</span>
                                             <span style={{ fontSize: 10, color: theme.muted }}>{label}</span>
-                                            {hasSplit && <span style={{ fontSize: 10, color: theme.blue, fontWeight: 700, marginTop: 2 }}>Cobrar por persona ›</span>}
+                                            {hasSplit && <span style={{ fontSize: 10, color: theme.blue, fontWeight: 700, marginTop: 2 }}>{splitStatus === 'sent' ? 'Cobrar por persona ›' : 'Editar y enviar ›'}</span>}
                                             {needsUpdate && !hasSplit && <span style={{ fontSize: 10, color: theme.accent, fontWeight: 700, marginTop: 2 }}>Reenviar cuenta ›</span>}
                                             {billSent && !needsUpdate && !hasSplit && <span style={{ fontSize: 10, color: theme.green, fontWeight: 700, marginTop: 2 }}>Cobrar ›</span>}
                                             {hasOrders && !billSent && !hasSplit && <span style={{ fontSize: 10, color: theme.accent, fontWeight: 600, marginTop: 2 }}>Enviar cuenta ›</span>}
@@ -816,6 +945,7 @@ export default function KitchenPage() {
                         splitRequest={modal.splitRequest}
                         onClose={() => setModal(null)}
                         onAllPaid={() => handleSplitAllPaid(modal.tableId, modal.splitRequest.id)}
+                        onRefresh={fetchSplitRequests}
                     />
                 )}
             </div>
