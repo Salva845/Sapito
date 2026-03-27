@@ -157,6 +157,52 @@ function BillModal({ bill, onClose }) {
     )
 }
 
+function SplitBillsModal({ splitRequest, onClose }) {
+    const [activePerson, setActivePerson] = useState(0)
+    const people = splitRequest?.split_people || []
+    const person = people[activePerson]
+
+    if (!person) return null
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: '#000d', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div className="scale-in" style={{ width: '100%', maxWidth: 460, maxHeight: '92vh', overflow: 'auto', borderRadius: 18, background: theme.card, border: `1px solid ${theme.blue}66` }}>
+                <div style={{ padding: '14px 18px', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'Bebas Neue', fontSize: 20, color: theme.blue, letterSpacing: 2 }}>CUENTAS DIVIDIDAS — MESA #{splitRequest.table_id}</span>
+                    <button onClick={onClose} style={{ padding: '5px 11px', borderRadius: 8, fontSize: 16, background: theme.surface, border: `1px solid ${theme.border}`, color: theme.muted }}>✕</button>
+                </div>
+                <div style={{ padding: 16 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                        {people.map((p, i) => (
+                            <button key={p.id || i} onClick={() => setActivePerson(i)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, background: activePerson === i ? theme.blue : theme.surface, color: activePerson === i ? 'white' : theme.text, border: `1px solid ${activePerson === i ? theme.blue : theme.border}` }}>
+                                {p.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div style={{ background: '#fffef5', borderRadius: 12, border: '2px dashed #c8b97a', padding: '16px 14px', color: '#1a1a00' }}>
+                        <div style={{ textAlign: 'center', marginBottom: 10, borderBottom: '1px dashed #c8b97a', paddingBottom: 10 }}>
+                            <div style={{ fontFamily: 'Bebas Neue', fontSize: 24, letterSpacing: 2 }}>SAPITO</div>
+                            <div style={{ fontSize: 11, color: '#777' }}>CUENTA INDIVIDUAL</div>
+                            <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>{person.label}</div>
+                        </div>
+                        {(person.split_items || []).map((it, idx) => (
+                            <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: '1px solid #eee8cc', padding: '5px 0' }}>
+                                <span>{it.qty}× {it.name}</span>
+                                <span>${(Number(it.price) * Number(it.qty)).toFixed(2)}</span>
+                            </div>
+                        ))}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: '2px solid #1a1a00' }}>
+                            <span style={{ fontWeight: 700 }}>TOTAL $</span>
+                            <span style={{ fontFamily: 'Bebas Neue', fontSize: 28, color: '#cc3300' }}>{Number(person.subtotal).toFixed(2)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 // ── SplitModal — el cliente divide la cuenta ──────────────────────────────────
 // Muestra todos los items del pedido; el cliente asigna cada uno a una persona
 // arrastrando o tocando el nombre de persona.
@@ -619,6 +665,7 @@ export default function MenuPage() {
             )}
 
             {showBillModal && bill && <BillModal bill={bill} onClose={() => { setShowBillModal(false); setBillNew(false) }} />}
+            {showSplitBillsModal && splitBillRequest && <SplitBillsModal splitRequest={splitBillRequest} onClose={() => { setShowSplitBillsModal(false); setSplitBillNew(false) }} />}
             {showSplitModal && <SplitModal tableId={tableId} sessionOrderIds={sessionOrderIds} onClose={() => setShowSplitModal(false)} onSend={handleSendSplit} />}
 
             <div style={{ background: theme.bg, minHeight: '100vh' }}>
@@ -633,7 +680,7 @@ export default function MenuPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
 
                             {/* Botón dividir cuenta */}
-                            {sessionOrderIds.length > 0 && !bill && (
+                            {sessionOrderIds.length > 0 && !bill && !splitBillRequest && (
                                 <button
                                     onClick={() => setShowSplitModal(true)}
                                     disabled={splitSent}
@@ -646,6 +693,19 @@ export default function MenuPage() {
                                     }}
                                 >
                                     {splitSent ? '✂️ Dividida' : '✂️ Dividir'}
+                                </button>
+                            )}
+
+                            {splitBillRequest && (
+                                <button
+                                    onClick={() => { setShowSplitBillsModal(true); setSplitBillNew(false) }}
+                                    style={{
+                                        position: 'relative', padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                        background: theme.blue + '22', color: theme.blue, border: `1px solid ${theme.blue}66`, whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    🧾 Dividida
+                                    {splitBillNew && <span style={{ position: 'absolute', top: -4, right: -4, width: 10, height: 10, borderRadius: '50%', background: theme.green, animation: 'pulse 1s infinite', border: `2px solid ${theme.surface}` }} />}
                                 </button>
                             )}
 
@@ -705,13 +765,25 @@ export default function MenuPage() {
                 )}
 
                 {/* Banner: división solicitada */}
-                {splitSent && !bill && (
+                {splitSent && !bill && !splitBillRequest && (
                     <div style={{ margin: '16px 16px 0', background: '#001a1a', border: `1px solid ${theme.blue}55`, borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
                         <span style={{ fontSize: 20 }}>✂️</span>
                         <div>
                             <div style={{ color: theme.blue, fontWeight: 600, fontSize: 13 }}>División de cuenta solicitada</div>
                             <div style={{ color: theme.muted, fontSize: 11, marginTop: 2 }}>El encargado cobrará a cada persona por separado.</div>
                         </div>
+                    </div>
+                )}
+
+                {/* Banner: cuentas divididas listas */}
+                {splitBillRequest && !bill && (
+                    <div className="scale-in" onClick={() => { setShowSplitBillsModal(true); setSplitBillNew(false) }} style={{ margin: '16px 16px 0', background: '#001327', border: `1px solid ${theme.blue}`, borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                        <span style={{ fontSize: 22 }}>🧾</span>
+                        <div style={{ flex: 1 }}>
+                            <div style={{ color: theme.blue, fontWeight: 700, fontSize: 14 }}>¡Tus cuentas divididas están listas!</div>
+                            <div style={{ color: theme.muted, fontSize: 11, marginTop: 2 }}>Toca aquí para ver cada cuenta individual.</div>
+                        </div>
+                        <span style={{ color: theme.blue, fontSize: 18 }}>›</span>
                     </div>
                 )}
 
