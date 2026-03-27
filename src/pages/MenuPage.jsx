@@ -456,9 +456,6 @@ export default function MenuPage() {
     const [showAccountToast, setShowAccountToast] = useState(false)
     const [showSplitModal, setShowSplitModal] = useState(false)
     const [splitSent, setSplitSent] = useState(false)
-    const [splitBillRequest, setSplitBillRequest] = useState(null)
-    const [splitBillNew, setSplitBillNew] = useState(false)
-    const [showSplitBillsModal, setShowSplitBillsModal] = useState(false)
     const [stateHydrated, setStateHydrated] = useState(false)
 
     if (!tableId) return (
@@ -522,7 +519,7 @@ export default function MenuPage() {
                 .from('split_requests')
                 .select('id')
                 .eq('table_id', tableNum)
-                .in('status', ['pending', 'sent'])
+                .eq('status', 'pending')
                 .limit(1)
                 .maybeSingle()
 
@@ -560,40 +557,6 @@ export default function MenuPage() {
         const ch = supabase.channel(`client-bill-${tableId}-${Date.now()}`)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bills', filter: `table_id=eq.${tableId}` }, fetchLatestBill)
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bills', filter: `table_id=eq.${tableId}` }, fetchLatestBill)
-            .subscribe()
-        return () => supabase.removeChannel(ch)
-    }, [tableId, tableNum])
-
-    // Escuchar cuentas divididas enviadas al cliente
-    useEffect(() => {
-        if (!tableId) return
-
-        const fetchSplitBill = async () => {
-            const { data } = await supabase
-                .from('split_requests')
-                .select('*, split_people(*, split_items(*))')
-                .eq('table_id', tableNum)
-                .eq('status', 'sent')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle()
-
-            if (data) {
-                setSplitBillRequest(data)
-                setSplitBillNew(true)
-                setShowSplitBillsModal(true)
-                setSplitSent(true)
-            } else {
-                setSplitBillRequest(null)
-                setSplitBillNew(false)
-            }
-        }
-
-        fetchSplitBill()
-        const ch = supabase.channel(`client-split-${tableId}-${Date.now()}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'split_requests', filter: `table_id=eq.${tableId}` }, fetchSplitBill)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'split_people' }, fetchSplitBill)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'split_items' }, fetchSplitBill)
             .subscribe()
         return () => supabase.removeChannel(ch)
     }, [tableId, tableNum])
