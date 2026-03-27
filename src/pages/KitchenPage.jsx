@@ -674,6 +674,14 @@ export default function KitchenPage() {
         await supabase.from('bill_items').insert(
             billItems.map(i => ({ bill_id: bill.id, name: i.name, price: i.price, qty: i.qty }))
         )
+
+        // Forzar evento UPDATE después de insertar items para que el cliente
+        // refresque la cuenta cuando llegue el detalle completo.
+        await supabase
+            .from('bills')
+            .update({ closed_at: new Date().toISOString() })
+            .eq('id', bill.id)
+
         // Marcar request_account como atendido
         await supabase
             .from('orders')
