@@ -2,6 +2,7 @@
 // ─── Ruta: /dueno ──────────────────────────────────────────────────────────────
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { canAccessOwner } from '../lib/auth'
 import { theme, globalCss } from '../lib/theme'
 
 const CATEGORIES = ['Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES', 'HAMBURGUESAS', 'ALITAS, PAPAS Y MAS',
@@ -121,6 +122,7 @@ export default function OwnerPage() {
     const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7))
     const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString())
     const authed = Boolean(session?.user)
+    const ownerAllowed = canAccessOwner(session?.user)
 
     useEffect(() => {
         let mounted = true
@@ -164,10 +166,10 @@ export default function OwnerPage() {
     }, [])
 
     useEffect(() => {
-        if (!authed) return
+        if (!authed || !ownerAllowed) return
         setLoading(true)
         Promise.all([fetchProducts(), fetchBills()]).finally(() => setLoading(false))
-    }, [authed, fetchProducts, fetchBills])
+    }, [authed, ownerAllowed, fetchProducts, fetchBills])
 
     // ── CRUD Productos ─────────────────────────────────────────────────────────
     const saveProduct = async (form) => {
@@ -288,6 +290,25 @@ export default function OwnerPage() {
                         {loginErr && <p style={{ color: theme.red, fontSize: 12, marginBottom: 8 }}>{loginErr}</p>}
                         <button disabled={loginLoading} onClick={attempt} style={{ width: '100%', padding: 14, borderRadius: 10, background: loginLoading ? theme.border : theme.accent, color: 'white', fontWeight: 700, fontSize: 15 }}>
                             {loginLoading ? 'Validando...' : 'Entrar'}
+                        </button>
+                    </div>
+                </div>
+            </>
+        )
+    }
+
+    if (!ownerAllowed) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
+                    <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 430, textAlign: 'center' }}>
+                        <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 3, marginBottom: 10 }}>ACCESO DENEGADO</h1>
+                        <p style={{ color: theme.muted, fontSize: 14, marginBottom: 20 }}>
+                            Esta sección es exclusiva para el dueño.
+                        </p>
+                        <button onClick={handleLogout} style={{ padding: '10px 16px', borderRadius: 10, background: theme.accent, color: 'white', fontWeight: 700, border: 'none' }}>
+                            Cerrar sesión
                         </button>
                     </div>
                 </div>

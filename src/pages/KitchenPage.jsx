@@ -2,6 +2,7 @@
 // ─── Ruta: /cocina ─────────────────────────────────────────────────────────────
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { canAccessKitchen } from '../lib/auth'
 import { theme, globalCss } from '../lib/theme'
 
 const TABLES = [1, 2, 3, 4, 5, 6]
@@ -506,6 +507,12 @@ function CloseMesaModal({ tableId, bill, onClose, onConfirmPago }) {
 
 // ── KitchenPage ───────────────────────────────────────────────────────────────
 export default function KitchenPage() {
+    const [session, setSession] = useState(null)
+    const [checkingSession, setCheckingSession] = useState(true)
+    const [email, setEmail] = useState('')
+    const [pass, setPass] = useState('')
+    const [loginLoading, setLoginLoading] = useState(false)
+    const [loginErr, setLoginErr] = useState('')
     const [orders, setOrders] = useState([])
     const [loading, setLoading] = useState(true)
     const [activeTable, setActiveTable] = useState(null)
@@ -514,6 +521,35 @@ export default function KitchenPage() {
 
     // modal: null | { type: 'send', tableId } | { type: 'close', tableId, bill }
     const [modal, setModal] = useState(null)
+    const authed = Boolean(session?.user)
+    const kitchenAllowed = canAccessKitchen(session?.user)
+
+    useEffect(() => {
+        let mounted = true
+
+        const bootstrapAuth = async () => {
+            const { data, error } = await supabase.auth.getSession()
+            if (!mounted) return
+            if (error) {
+                setLoginErr('No se pudo validar la sesión. Intenta de nuevo.')
+                setSession(null)
+            } else {
+                setSession(data.session)
+            }
+            setCheckingSession(false)
+        }
+
+        bootstrapAuth()
+
+        const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+            setSession(nextSession)
+        })
+
+        return () => {
+            mounted = false
+            listener.subscription.unsubscribe()
+        }
+    }, [])
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchOrders = useCallback(async () => {
@@ -558,6 +594,8 @@ export default function KitchenPage() {
     const [realtimeStatus, setRealtimeStatus] = useState('connecting') // 'connecting' | 'ok' | 'error'
 
     useEffect(() => {
+        if (!authed || !kitchenAllowed) return
+
         const init = async () => {
             setLoading(true)
             await Promise.all([fetchOrders(), fetchTables(), fetchSentBills()])
@@ -606,7 +644,7 @@ export default function KitchenPage() {
             clearInterval(pollInterval)
             clearTimeout(reconnectTimeout)
         }
-    }, [fetchOrders, fetchTables, fetchSentBills])
+    }, [authed, kitchenAllowed, fetchOrders, fetchTables, fetchSentBills])
 
     // ── Cambiar status de item ────────────────────────────────────────────────
     const handleStatusChange = async (itemId, status) => {
@@ -722,6 +760,92 @@ export default function KitchenPage() {
             // Pedidos activos sin cuenta -> armar y enviar cuenta
             setModal({ type: 'send', tableId: t })
         }
+    }
+
+    const attempt = async () => {
+        setLoginErr('')
+        if (!email || !pass) {
+            setLoginErr('Correo y contraseña son obligatorios.')
+            return
+        }
+
+        setLoginLoading(true)
+        const { error } = await supabase.auth.signInWithPassword({ email, password: pass })
+        setLoginLoading(false)
+
+        if (error) {
+            setLoginErr('Credenciales inválidas o usuario sin acceso.')
+        } else {
+            setPass('')
+        }
+    }
+
+    const handleLogout = async () => {
+        await supabase.auth.signOut()
+    }
+
+    if (checkingSession) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <div style={{ minHeight: '100vh', background: theme.bg }}>
+                    <Spinner />
+                </div>
+            </>
+        )
+    }
+
+    if (!authed) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
+                    <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 380 }}>
+                        <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 34, color: theme.accent, letterSpacing: 3, marginBottom: 4 }}>PANEL DE COCINA</h1>
+                        <p style={{ color: theme.muted, fontSize: 13, marginBottom: 24 }}>Solo dueño y cocineros autorizados</p>
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={e => setEmail(e.target.value)}
+                            style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${theme.border}` }}
+                            placeholder="Correo"
+                            autoFocus
+                        />
+                        <input
+                            type="password"
+                            value={pass}
+                            onChange={e => setPass(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && attempt()}
+                            style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${loginErr ? theme.red : theme.border}` }}
+                            placeholder="Contraseña"
+                        />
+                        {loginErr && <p style={{ color: theme.red, fontSize: 12, marginBottom: 8 }}>{loginErr}</p>}
+                        <button disabled={loginLoading} onClick={attempt} style={{ width: '100%', padding: 14, borderRadius: 10, background: loginLoading ? theme.border : theme.accent, color: 'white', fontWeight: 700, fontSize: 15 }}>
+                            {loginLoading ? 'Validando...' : 'Entrar'}
+                        </button>
+                    </div>
+                </div>
+            </>
+        )
+    }
+
+    if (!kitchenAllowed) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
+                    <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 430, textAlign: 'center' }}>
+                        <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 3, marginBottom: 10 }}>ACCESO DENEGADO</h1>
+                        <p style={{ color: theme.muted, fontSize: 14, marginBottom: 20 }}>
+                            Tu cuenta no tiene permisos para entrar a cocina.
+                        </p>
+                        <button onClick={handleLogout} style={{ padding: '10px 16px', borderRadius: 10, background: theme.accent, color: 'white', fontWeight: 700, border: 'none' }}>
+                            Cerrar sesión
+                        </button>
+                    </div>
+                </div>
+            </>
+        )
     }
 
     return (
