@@ -55,10 +55,11 @@ function ItemRow({ item, onStatusChange }) {
 }
 
 // ── TicketPreview (solo lectura, dentro del modal) ────────────────────────────
-function TicketPreview({ tableId, items, total, note }) {
+function TicketPreview({ tableId, items, total, note, splitEnabled, splitCount }) {
     const dateStr = new Date().toLocaleDateString('es-MX', {
         day: '2-digit', month: '2-digit', year: '2-digit',
     })
+    const perPerson = splitEnabled && splitCount > 1 ? total / splitCount : 0
     return (
         <div style={{
             background: '#fffef5', borderRadius: 10,
@@ -106,6 +107,16 @@ function TicketPreview({ tableId, items, total, note }) {
                     {Number(total).toFixed(2)}
                 </span>
             </div>
+            {splitEnabled && splitCount > 1 ? (
+                <div style={{
+                    marginTop: 8, paddingTop: 8, borderTop: '1px dashed #c8b97a',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    fontSize: 12, color: '#555',
+                }}>
+                    <span>Dividir entre {splitCount}</span>
+                    <span style={{ fontWeight: 700 }}>${perPerson.toFixed(2)} c/u</span>
+                </div>
+            ) : null}
             {note ? (
                 <div style={{ marginTop: 6, fontSize: 10, color: '#888', fontStyle: 'italic', textAlign: 'center' }}>
                     {note}
@@ -151,6 +162,8 @@ function SendBillModal({ tableId, orders, onClose, onSend, previousBill }) {
     const [note, setNote] = useState('')
     const [showTicket, setShowTicket] = useState(false)
     const [sending, setSending] = useState(false)
+    const [splitEnabled, setSplitEnabled] = useState(false)
+    const [splitCount, setSplitCount] = useState(2)
 
     // Producto manual
     const [showAddForm, setShowAddForm] = useState(false)
@@ -159,6 +172,9 @@ function SendBillModal({ tableId, orders, onClose, onSend, previousBill }) {
     const [newQty, setNewQty] = useState('1')
 
     const total = items.reduce((s, i) => s + Number(i.price) * i.qty, 0)
+    const perPersonTotal = splitEnabled && splitCount > 1 ? total / splitCount : 0
+    const splitNote = splitEnabled && splitCount > 1 ? `Cuenta dividida entre ${splitCount} personas: $${perPersonTotal.toFixed(2)} c/u.` : ''
+    const finalNote = [note.trim(), splitNote].filter(Boolean).join(' ')
 
     const updateQty = (idx, val) =>
         setItems(prev =>
@@ -222,7 +238,14 @@ function SendBillModal({ tableId, orders, onClose, onSend, previousBill }) {
 
                 <div style={{ padding: 20 }}>
                     {showTicket ? (
-                        <TicketPreview tableId={tableId} items={items} total={total} note={note} />
+                        <TicketPreview
+                            tableId={tableId}
+                            items={items}
+                            total={total}
+                            note={finalNote}
+                            splitEnabled={splitEnabled}
+                            splitCount={splitCount}
+                        />
                     ) : (
                         <>
                             {/* Tabla editable */}
@@ -348,6 +371,42 @@ function SendBillModal({ tableId, orders, onClose, onSend, previousBill }) {
                                     placeholder="Método de pago, observaciones..."
                                 />
                             </div>
+
+                            {/* División de cuenta */}
+                            <div style={{
+                                marginTop: 12, padding: '10px 12px', borderRadius: 10,
+                                border: `1px solid ${theme.border}`, background: theme.surface,
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: splitEnabled ? 10 : 0 }}>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: theme.text }}>Dividir cuenta</span>
+                                    <button
+                                        onClick={() => setSplitEnabled(v => !v)}
+                                        style={{
+                                            padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                                            background: splitEnabled ? theme.accent + '22' : theme.card,
+                                            color: splitEnabled ? theme.accent : theme.muted,
+                                            border: `1px solid ${splitEnabled ? theme.accent + '66' : theme.border}`,
+                                        }}
+                                    >
+                                        {splitEnabled ? '✓ Activado' : 'Activar'}
+                                    </button>
+                                </div>
+                                {splitEnabled && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 10, alignItems: 'center' }}>
+                                        <label style={{ color: theme.muted, fontSize: 11 }}>Personas</label>
+                                        <input
+                                            type="number"
+                                            min="2"
+                                            max="20"
+                                            value={splitCount}
+                                            onChange={e => setSplitCount(Math.max(2, Math.min(20, parseInt(e.target.value) || 2)))}
+                                            style={{ width: '100%', padding: '7px 10px', fontSize: 13 }}
+                                        />
+                                        <span style={{ color: theme.muted, fontSize: 11 }}>Monto por persona</span>
+                                        <span style={{ color: theme.accent, fontWeight: 700, fontSize: 14 }}>${perPersonTotal.toFixed(2)}</span>
+                                    </div>
+                                )}
+                            </div>
                         </>
                     )}
 
@@ -363,7 +422,7 @@ function SendBillModal({ tableId, orders, onClose, onSend, previousBill }) {
                             disabled={sending || items.length === 0}
                             onClick={async () => {
                                 setSending(true)
-                                await onSend(items, total, note)
+                                await onSend(items, total, finalNote)
                                 setSending(false)
                             }}
                             style={{

@@ -4,10 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { theme, globalCss } from '../lib/theme'
 
-// Contraseña hardcodeada para demo.
-// En producción: usa Supabase Auth con un usuario admin.
-const ADMIN_PASSWORD = 'admin123'
-
 const CATEGORIES = ['Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES', 'HAMBURGUESAS', 'ALITAS, PAPAS Y MAS',
     'HOT DOGS', 'PA BOTANEAR', 'SNACKS', 'CARNES', 'BURRITOS', 'TACOS', 'ALAMBRES', 'QUESOS FUNDIDOS Y COSTRAS',
     'ENSALADAS', 'CERVEZAS', 'COCTELERIA', 'BEBIDAS SIN ALCOHOL']
@@ -106,7 +102,10 @@ function ProductForm({ initial, onSave, onCancel }) {
 // ── OwnerPage ─────────────────────────────────────────────────────────────────
 export default function OwnerPage() {
     const [authed, setAuthed] = useState(false)
-    const [pass, setPass] = useState('')
+    const [authLoading, setAuthLoading] = useState(true)
+    const [email, setEmail] = useState('')
+    const [password, setPassword] = useState('')
+    const [loggingIn, setLoggingIn] = useState(false)
     const [loginErr, setLoginErr] = useState(false)
     const [tab, setTab] = useState('resumen')
     const [products, setProducts] = useState([])
@@ -141,6 +140,30 @@ export default function OwnerPage() {
         setLoading(true)
         Promise.all([fetchProducts(), fetchBills()]).finally(() => setLoading(false))
     }, [authed, fetchProducts, fetchBills])
+
+    // ── Auth sesión admin ─────────────────────────────────────────────────────
+    useEffect(() => {
+        let mounted = true
+
+        const bootstrap = async () => {
+            const { data } = await supabase.auth.getSession()
+            if (!mounted) return
+            setAuthed(!!data.session)
+            setAuthLoading(false)
+        }
+        bootstrap()
+
+        const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (!mounted) return
+            setAuthed(!!session)
+            setAuthLoading(false)
+        })
+
+        return () => {
+            mounted = false
+            listener?.subscription?.unsubscribe()
+        }
+    }, [])
 
     // ── CRUD Productos ─────────────────────────────────────────────────────────
     const saveProduct = async (form) => {
@@ -202,9 +225,31 @@ export default function OwnerPage() {
     const topToday = Object.entries(todaySales).sort((a, b) => b[1] - a[1]).slice(0, 3)
 
     // ── LOGIN ──────────────────────────────────────────────────────────────────
-    const attempt = () => {
-        if (pass === ADMIN_PASSWORD) { setAuthed(true); setLoginErr(false) }
-        else { setLoginErr(true); setTimeout(() => setLoginErr(false), 1500) }
+    const attempt = async () => {
+        if (!email.trim() || !password) return
+        setLoggingIn(true)
+        const { error } = await supabase.auth.signInWithPassword({
+            email: email.trim(),
+            password,
+        })
+        if (error) {
+            setLoginErr(true)
+            setTimeout(() => setLoginErr(false), 2000)
+        } else {
+            setLoginErr(false)
+        }
+        setLoggingIn(false)
+    }
+
+    if (authLoading) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <div style={{ minHeight: '100vh', background: theme.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Spinner />
+                </div>
+            </>
+        )
     }
 
     if (!authed) {
@@ -214,20 +259,29 @@ export default function OwnerPage() {
                 <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
                     <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 380 }}>
                         <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 34, color: theme.accent, letterSpacing: 3, marginBottom: 4 }}>PANEL DEL DUEÑO</h1>
-                        <p style={{ color: theme.muted, fontSize: 13, marginBottom: 24 }}>Acceso restringido</p>
+                        <p style={{ color: theme.muted, fontSize: 13, marginBottom: 24 }}>Acceso con cuenta de administrador</p>
                         <input
-                            type="password" value={pass}
-                            onChange={e => setPass(e.target.value)}
+                            type="email" value={email}
+                            onChange={e => setEmail(e.target.value)}
+                            style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${theme.border}` }}
+                            placeholder="Correo"
+                            autoFocus
+                        />
+                        <input
+                            type="password" value={password}
+                            onChange={e => setPassword(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && attempt()}
                             style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${loginErr ? theme.red : theme.border}` }}
                             placeholder="Contraseña"
-                            autoFocus
                         />
-                        {loginErr && <p style={{ color: theme.red, fontSize: 12, marginBottom: 8 }}>Contraseña incorrecta</p>}
-                        <button onClick={attempt} style={{ width: '100%', padding: 14, borderRadius: 10, background: theme.accent, color: 'white', fontWeight: 700, fontSize: 15 }}>
-                            Entrar
+                        {loginErr && <p style={{ color: theme.red, fontSize: 12, marginBottom: 8 }}>No se pudo iniciar sesión. Verifica tu cuenta.</p>}
+                        <button
+                            onClick={attempt}
+                            disabled={loggingIn || !email.trim() || !password}
+                            style={{ width: '100%', padding: 14, borderRadius: 10, background: (loggingIn || !email.trim() || !password) ? theme.border : theme.accent, color: 'white', fontWeight: 700, fontSize: 15 }}
+                        >
+                            {loggingIn ? 'Entrando...' : 'Entrar'}
                         </button>
-                        <p style={{ color: theme.muted, fontSize: 11, marginTop: 10, textAlign: 'center' }}>Demo: admin123</p>
                     </div>
                 </div>
             </>
@@ -244,7 +298,13 @@ export default function OwnerPage() {
                         <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 38, color: theme.accent, letterSpacing: 3, lineHeight: 1 }}>PANEL DEL DUEÑO</h1>
                         <p style={{ color: theme.muted, fontSize: 13 }}>El Rincón</p>
                     </div>
-                    <button onClick={() => setAuthed(false)} style={{ padding: '7px 14px', borderRadius: 8, background: theme.card, border: `1px solid ${theme.border}`, color: theme.muted, fontSize: 12 }}>
+                    <button
+                        onClick={async () => {
+                            await supabase.auth.signOut()
+                            setAuthed(false)
+                        }}
+                        style={{ padding: '7px 14px', borderRadius: 8, background: theme.card, border: `1px solid ${theme.border}`, color: theme.muted, fontSize: 12 }}
+                    >
                         Salir
                     </button>
                 </div>
