@@ -4,10 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { theme, globalCss } from '../lib/theme'
 
-// Contraseña hardcodeada para demo.
-// En producción: usa Supabase Auth con un usuario admin.
-const ADMIN_PASSWORD = 'admin123'
-
 const CATEGORIES = ['Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES', 'HAMBURGUESAS', 'ALITAS, PAPAS Y MAS',
     'HOT DOGS', 'PA BOTANEAR', 'SNACKS', 'CARNES', 'BURRITOS', 'TACOS', 'ALAMBRES', 'QUESOS FUNDIDOS Y COSTRAS',
     'ENSALADAS', 'CERVEZAS', 'COCTELERIA', 'BEBIDAS SIN ALCOHOL']
@@ -105,9 +101,12 @@ function ProductForm({ initial, onSave, onCancel }) {
 
 // ── OwnerPage ─────────────────────────────────────────────────────────────────
 export default function OwnerPage() {
-    const [authed, setAuthed] = useState(false)
+    const [session, setSession] = useState(null)
+    const [checkingSession, setCheckingSession] = useState(true)
+    const [email, setEmail] = useState('')
     const [pass, setPass] = useState('')
-    const [loginErr, setLoginErr] = useState(false)
+    const [loginLoading, setLoginLoading] = useState(false)
+    const [loginErr, setLoginErr] = useState('')
     const [tab, setTab] = useState('resumen')
     const [products, setProducts] = useState([])
     const [bills, setBills] = useState([])
@@ -121,6 +120,34 @@ export default function OwnerPage() {
     const [filterWeek, setFilterWeek] = useState(new Date().toISOString().slice(0, 10))
     const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7))
     const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString())
+    const authed = Boolean(session?.user)
+
+    useEffect(() => {
+        let mounted = true
+
+        const bootstrapAuth = async () => {
+            const { data, error } = await supabase.auth.getSession()
+            if (!mounted) return
+            if (error) {
+                setLoginErr('No se pudo validar la sesión. Intenta de nuevo.')
+                setSession(null)
+            } else {
+                setSession(data.session)
+            }
+            setCheckingSession(false)
+        }
+
+        bootstrapAuth()
+
+        const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+            setSession(nextSession)
+        })
+
+        return () => {
+            mounted = false
+            listener.subscription.unsubscribe()
+        }
+    }, [])
 
     // ── Fetch ──────────────────────────────────────────────────────────────────
     const fetchProducts = useCallback(async () => {
@@ -202,9 +229,37 @@ export default function OwnerPage() {
     const topToday = Object.entries(todaySales).sort((a, b) => b[1] - a[1]).slice(0, 3)
 
     // ── LOGIN ──────────────────────────────────────────────────────────────────
-    const attempt = () => {
-        if (pass === ADMIN_PASSWORD) { setAuthed(true); setLoginErr(false) }
-        else { setLoginErr(true); setTimeout(() => setLoginErr(false), 1500) }
+    const attempt = async () => {
+        setLoginErr('')
+        if (!email || !pass) {
+            setLoginErr('Correo y contraseña son obligatorios.')
+            return
+        }
+
+        setLoginLoading(true)
+        const { error } = await supabase.auth.signInWithPassword({ email, password: pass })
+        setLoginLoading(false)
+
+        if (error) {
+            setLoginErr('Credenciales inválidas o usuario sin acceso.')
+        } else {
+            setPass('')
+        }
+    }
+
+    const handleLogout = async () => {
+        await supabase.auth.signOut()
+    }
+
+    if (checkingSession) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <div style={{ minHeight: '100vh', background: theme.bg }}>
+                    <Spinner />
+                </div>
+            </>
+        )
     }
 
     if (!authed) {
@@ -214,20 +269,26 @@ export default function OwnerPage() {
                 <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
                     <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 380 }}>
                         <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 34, color: theme.accent, letterSpacing: 3, marginBottom: 4 }}>PANEL DEL DUEÑO</h1>
-                        <p style={{ color: theme.muted, fontSize: 13, marginBottom: 24 }}>Acceso restringido</p>
+                        <p style={{ color: theme.muted, fontSize: 13, marginBottom: 24 }}>Acceso restringido con Supabase Auth</p>
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={e => setEmail(e.target.value)}
+                            style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${theme.border}` }}
+                            placeholder="Correo"
+                            autoFocus
+                        />
                         <input
                             type="password" value={pass}
                             onChange={e => setPass(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && attempt()}
                             style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${loginErr ? theme.red : theme.border}` }}
                             placeholder="Contraseña"
-                            autoFocus
                         />
-                        {loginErr && <p style={{ color: theme.red, fontSize: 12, marginBottom: 8 }}>Contraseña incorrecta</p>}
-                        <button onClick={attempt} style={{ width: '100%', padding: 14, borderRadius: 10, background: theme.accent, color: 'white', fontWeight: 700, fontSize: 15 }}>
-                            Entrar
+                        {loginErr && <p style={{ color: theme.red, fontSize: 12, marginBottom: 8 }}>{loginErr}</p>}
+                        <button disabled={loginLoading} onClick={attempt} style={{ width: '100%', padding: 14, borderRadius: 10, background: loginLoading ? theme.border : theme.accent, color: 'white', fontWeight: 700, fontSize: 15 }}>
+                            {loginLoading ? 'Validando...' : 'Entrar'}
                         </button>
-                        <p style={{ color: theme.muted, fontSize: 11, marginTop: 10, textAlign: 'center' }}>Demo: admin123</p>
                     </div>
                 </div>
             </>
@@ -242,9 +303,9 @@ export default function OwnerPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                     <div>
                         <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 38, color: theme.accent, letterSpacing: 3, lineHeight: 1 }}>PANEL DEL DUEÑO</h1>
-                        <p style={{ color: theme.muted, fontSize: 13 }}>El Rincón</p>
+                        <p style={{ color: theme.muted, fontSize: 13 }}>{session?.user?.email || 'El Rincón'}</p>
                     </div>
-                    <button onClick={() => setAuthed(false)} style={{ padding: '7px 14px', borderRadius: 8, background: theme.card, border: `1px solid ${theme.border}`, color: theme.muted, fontSize: 12 }}>
+                    <button onClick={handleLogout} style={{ padding: '7px 14px', borderRadius: 8, background: theme.card, border: `1px solid ${theme.border}`, color: theme.muted, fontSize: 12 }}>
                         Salir
                     </button>
                 </div>
