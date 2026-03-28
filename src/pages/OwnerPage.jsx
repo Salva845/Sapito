@@ -8,8 +8,29 @@ import { theme, globalCss } from '../lib/theme'
 const CATEGORIES = ['Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES', 'HAMBURGUESAS', 'ALITAS, PAPAS Y MAS',
     'HOT DOGS', 'PA BOTANEAR', 'SNACKS', 'CARNES', 'BURRITOS', 'TACOS', 'ALAMBRES', 'QUESOS FUNDIDOS Y COSTRAS',
     'ENSALADAS', 'CERVEZAS', 'COCTELERIA', 'BEBIDAS SIN ALCOHOL']
-const EMOJIS = ['🧀', '🍗', '🌭', '🌯', '🫓', '🥙', '🍔', '🥗', '🍟', '🥪', '🧆', '🌮',
-    '🍺', '🍹', '🥤', '☕', '🥩', '🫕', '🌶️', '🧅', '🍤', '🫙']
+const EMOJIS = [
+    '🧀', '🍗', '🌭', '🌯', '🫓', '🥙', '🍔', '🥗', '🍟', '🥪', '🧆', '🌮',
+    '🍺', '🍹', '🥤', '☕', '🥩', '🫕', '🌶️', '🧅', '🍤', '🫙',
+    // Nuevas opciones para platillos del menú
+    '🍖', // Costillas bbq
+    '🍗', // Boneless
+    '🥑', // Guacamole
+    '🧀', // Nachos
+    '🍿', // Botana
+    '🐔', // Nugget
+    '🐙', // Salchipulpo (pulpo)
+    '🧅', // Aros de cebolla
+    '🫓', // Sincronizadas
+    '🍌', // Plátanos fritos
+    '🍬', // Gomitas locas
+    '🫒', // Aceitunas preparadas
+    '🐟', // Tostada de ceviche / tiritas de pescado
+    '🐙', // Tostada de pulpo
+    '🥟', // Empanada de camarón
+    '🦐', // Campechanita / caldo de camarón
+    '🥩', // Carne tártara
+    '🍲', // Sopa / caldo
+]
 
 const BUSINESS_TIMEZONE = 'America/Mexico_City'
 
