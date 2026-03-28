@@ -147,27 +147,41 @@ function ProductCard({ product, cartItems, onAdd, onRemove }) {
 }
 
 // ── OrderTracker ──────────────────────────────────────────────────────────────
-function OrderTracker({ tableId, sessionOrderIds }) {
+function OrderTracker({ tableId, tableNum }) {
     const [items, setItems] = useState([])
 
     const fetchItems = useCallback(async () => {
-        if (!sessionOrderIds.length) {
+        if (!tableNum) {
             setItems([])
             return
         }
+        const { data: openOrders } = await supabase
+            .from('orders')
+            .select('id')
+            .eq('table_id', tableNum)
+            .eq('closed', false)
+            .eq('request_account', false)
+
+        const orderIds = (openOrders || []).map(o => o.id)
+        if (!orderIds.length) {
+            setItems([])
+            return
+        }
+
         const { data } = await supabase
             .from('order_items')
             .select('id, name, photo, qty, status, order_id')
-            .in('order_id', sessionOrderIds)
+            .in('order_id', orderIds)
             .order('id', { ascending: true })
         if (data) setItems(data)
-    }, [sessionOrderIds])
+    }, [tableNum])
 
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         fetchItems()
         const channel = supabase
             .channel(`tracker-${tableId}-${Date.now()}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `table_id=eq.${tableId}` }, fetchItems)
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'order_items' }, fetchItems)
             .subscribe()
         return () => supabase.removeChannel(channel)
@@ -335,7 +349,6 @@ export default function MenuPage() {
     const [cart, setCart] = useState([])
     const [submitted, setSubmitted] = useState(false)
     const [submitting, setSubmitting] = useState(false)
-    const [sessionOrderIds, setSessionOrderIds] = useState([])
 
     // cuenta
     const [accountRequested, setAccountRequested] = useState(false)
@@ -346,9 +359,9 @@ export default function MenuPage() {
     const [showAccountToast, setShowAccountToast] = useState(false) // toast al solicitar
     const [tableExists, setTableExists] = useState(null)
     const [showHeaderLogo, setShowHeaderLogo] = useState(true)
+    const [tableHasOpenOrders, setTableHasOpenOrders] = useState(false)
 
     const resetClientOrderFlow = useCallback(() => {
-        setSessionOrderIds([])
         setAccountRequested(false)
         setSubmitted(false)
         setBill(null)
@@ -463,6 +476,7 @@ export default function MenuPage() {
             const isFree = table?.status === 'free'
             const hasOpenOrders = (openOrders || []).length > 0
             const hasSentBill = (sentBill || []).length > 0
+            setTableHasOpenOrders(hasOpenOrders)
 
             // Mesa libre + sin pedidos abiertos + sin cuenta enviada => flujo terminado/pagado
             if (isFree && !hasOpenOrders && !hasSentBill) {
@@ -520,7 +534,6 @@ export default function MenuPage() {
             )
             await supabase.from('tables').update({ status: 'active' }).eq('id', tableNum)
 
-            setSessionOrderIds(prev => [...prev, order.id])
             setCart([])
             setSubmitted(true)
         } catch (e) {
@@ -542,7 +555,15 @@ export default function MenuPage() {
         }
         if (accountRequested) return // ya solicitada, no hacer nada
 
-        if (!sessionOrderIds.length) {
+        const { data: openOrders } = await supabase
+            .from('orders')
+            .select('id')
+            .eq('table_id', tableNum)
+            .eq('closed', false)
+            .eq('request_account', false)
+            .limit(1)
+
+        if (!(openOrders || []).length) {
             alert('Primero debes realizar un pedido.')
             return
         }
@@ -599,7 +620,7 @@ export default function MenuPage() {
                     Tu pedido está en camino a la cocina.<br />Mesa #{tableId}
                 </p>
                 <div style={{ width: '100%', maxWidth: 440 }}>
-                    <OrderTracker tableId={tableId} sessionOrderIds={sessionOrderIds} />
+                    <OrderTracker tableId={tableId} tableNum={tableNum} />
                 </div>
                 <button
                     onClick={() => setSubmitted(false)}
@@ -700,7 +721,7 @@ export default function MenuPage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
 
                             {/* Botón cuenta — visible cuando hay pedidos o cuando la cuenta ya llegó */}
-                            {(sessionOrderIds.length > 0 || accountRequested || bill) && (
+                            {(tableHasOpenOrders || accountRequested || bill) && (
                                 <button
                                     onClick={handleRequestAccount}
                                     disabled={requestingAccount}
@@ -764,9 +785,9 @@ export default function MenuPage() {
                 </div>
 
                 {/* Tracker inline */}
-                {sessionOrderIds.length > 0 && (
+                {tableHasOpenOrders && (
                     <div style={{ padding: '16px 16px 0' }}>
-                        <OrderTracker tableId={tableId} sessionOrderIds={sessionOrderIds} />
+                        <OrderTracker tableId={tableId} tableNum={tableNum} />
                     </div>
                 )}
 
