@@ -565,11 +565,11 @@ export default function MenuPage() {
 
     // ── Redirección a página pública informativa cuando la URL no es válida ─
     if (!tableId) {
-        return <Navigate to="/inicio" replace state={{ source: hasQueryParams ? 'invalid-query' : 'missing-table' }} />
+        return <Navigate to="/qr-invalido" replace state={{ source: hasQueryParams ? 'invalid-query' : 'missing-table' }} />
     }
 
     if (!hasValidTableId) {
-        return <Navigate to="/inicio" replace state={{ source: 'invalid-table-id' }} />
+        return <Navigate to="/qr-invalido" replace state={{ source: 'invalid-table-id' }} />
     }
 
     if (tableExists === null) {
@@ -582,7 +582,7 @@ export default function MenuPage() {
     }
 
     if (!tableExists) {
-        return <Navigate to="/inicio" replace state={{ source: 'table-not-found' }} />
+        return <Navigate to="/qr-invalido" replace state={{ source: 'table-not-found' }} />
     }
 
     // ── Pantalla: pedido enviado ──────────────────────────────────────────────

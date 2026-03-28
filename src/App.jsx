@@ -6,6 +6,7 @@ import KitchenPage from './pages/KitchenPage'
 import OwnerPage from './pages/OwnerPage'
 import GenerateQRs from './pages/GenerateQRs'
 import TableSelectionPage from './pages/TableSelectionPage'
+import InvalidQrPage from './pages/InvalidQrPage'
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
 
         {/* Pantalla informativa para clientes sin mesa/URL incorrecta */}
         <Route path="/inicio" element={<TableSelectionPage />} />
+        <Route path="/qr-invalido" element={<InvalidQrPage />} />
 
         {/* Fallback global */}
         <Route path="*" element={<Navigate to="/inicio" replace />} />
