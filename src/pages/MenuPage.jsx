@@ -20,6 +20,16 @@ function useTableId() {
     return params.get('mesa')
 }
 
+function normalizeFlavors(value) {
+    if (Array.isArray(value)) {
+        return value.map(v => String(v).trim()).filter(Boolean)
+    }
+    if (typeof value === 'string') {
+        return value.split(',').map(v => v.trim()).filter(Boolean)
+    }
+    return []
+}
+
 // ── Spinner ───────────────────────────────────────────────────────────────────
 function Spinner() {
     return (
@@ -36,7 +46,11 @@ function Spinner() {
 }
 
 // ── ProductCard ───────────────────────────────────────────────────────────────
-function ProductCard({ product, qty, onAdd, onRemove }) {
+function ProductCard({ product, cartItems, onAdd, onRemove }) {
+    const flavors = normalizeFlavors(product.flavors)
+    const [selectedFlavor, setSelectedFlavor] = useState(flavors[0] || '')
+    const qty = cartItems.find(i => i.id === product.id && (i.selectedFlavor || '') === (selectedFlavor || ''))?.qty || 0
+
     return (
         <div className="fade-up" style={{
             background: theme.card, borderRadius: 14,
@@ -54,8 +68,8 @@ function ProductCard({ product, qty, onAdd, onRemove }) {
                     : product.photo
                 }
             </div>
-            <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
+                <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                         <span style={{ fontWeight: 600, fontSize: 15, lineHeight: 1.2 }}>{product.name}</span>
                         <span style={{ color: theme.accent, fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
@@ -65,11 +79,35 @@ function ProductCard({ product, qty, onAdd, onRemove }) {
                     <p style={{ color: theme.muted, fontSize: 12, marginTop: 4, lineHeight: 1.45 }}>
                         {product.description}
                     </p>
+                    {flavors.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                            <label style={{ display: 'block', color: theme.muted, fontSize: 11, marginBottom: 4 }}>
+                                Sabor
+                            </label>
+                            <select
+                                value={selectedFlavor}
+                                onChange={(e) => setSelectedFlavor(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '7px 9px',
+                                    borderRadius: 8,
+                                    background: theme.surface,
+                                    border: `1px solid ${theme.border}`,
+                                    color: theme.text,
+                                    fontSize: 12,
+                                }}
+                            >
+                                {flavors.map(flavor => (
+                                    <option key={flavor} value={flavor}>{flavor}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: 10, gap: 8 }}>
                     {qty > 0 && (
                         <>
-                            <button onClick={() => onRemove(product.id)} style={{
+                            <button onClick={() => onRemove(product.id, selectedFlavor)} style={{
                                 width: 30, height: 30, borderRadius: 8, fontSize: 18, fontWeight: 700,
                                 background: theme.surface, border: `1px solid ${theme.border}`, color: theme.text,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -77,7 +115,7 @@ function ProductCard({ product, qty, onAdd, onRemove }) {
                             <span style={{ fontWeight: 700, minWidth: 22, textAlign: 'center', fontSize: 15 }}>{qty}</span>
                         </>
                     )}
-                    <button onClick={() => onAdd(product)} style={{
+                    <button onClick={() => onAdd(product, selectedFlavor)} style={{
                         padding: '7px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
                         background: theme.accent, color: 'white',
                     }}>
@@ -414,14 +452,16 @@ export default function MenuPage() {
     }, [tableId, resetClientOrderFlow])
 
     // ── Cart ──────────────────────────────────────────────────────────────────
-    const addToCart = (product) => setCart(c => {
-        const ex = c.find(i => i.id === product.id)
+    const addToCart = (product, flavor = '') => setCart(c => {
+        const ex = c.find(i => i.id === product.id && (i.selectedFlavor || '') === (flavor || ''))
         return ex
-            ? c.map(i => i.id === product.id ? { ...i, qty: i.qty + 1 } : i)
-            : [...c, { ...product, qty: 1 }]
+            ? c.map(i => i.id === product.id && (i.selectedFlavor || '') === (flavor || '') ? { ...i, qty: i.qty + 1 } : i)
+            : [...c, { ...product, selectedFlavor: flavor || '', qty: 1 }]
     })
-    const removeFromCart = (id) => setCart(c =>
-        c.map(i => i.id === id ? { ...i, qty: i.qty - 1 } : i).filter(i => i.qty > 0)
+    const removeFromCart = (id, flavor = '') => setCart(c =>
+        c
+            .map(i => i.id === id && (i.selectedFlavor || '') === (flavor || '') ? { ...i, qty: i.qty - 1 } : i)
+            .filter(i => i.qty > 0)
     )
     const cartQty = cart.reduce((s, i) => s + i.qty, 0)
     const cartTotal = cart.reduce((s, i) => s + i.price * i.qty, 0)
@@ -442,7 +482,8 @@ export default function MenuPage() {
             await supabase.from('order_items').insert(
                 cart.map(i => ({
                     order_id: order.id, product_id: i.id,
-                    name: i.name, price: i.price, photo: i.photo,
+                    name: i.selectedFlavor ? `${i.name} (${i.selectedFlavor})` : i.name,
+                    price: i.price, photo: i.photo,
                     qty: i.qty, status: 'recibido',
                 }))
             )
@@ -681,17 +722,16 @@ export default function MenuPage() {
                 <div style={{ padding: `16px 16px ${cart.length ? 180 : 32}px` }}>
                     {loading ? <Spinner /> : (
                         <div style={{ display: 'grid', gap: 12 }}>
-                            {filtered.map((p, i) => {
-                                const qty = cart.find(c => c.id === p.id)?.qty || 0
-                                return (
-                                    <div key={p.id} style={{ animationDelay: `${i * 0.04}s` }}>
-                                        <ProductCard
-                                            product={p} qty={qty}
-                                            onAdd={addToCart} onRemove={removeFromCart}
-                                        />
-                                    </div>
-                                )
-                            })}
+                            {filtered.map((p, i) => (
+                                <div key={p.id} style={{ animationDelay: `${i * 0.04}s` }}>
+                                    <ProductCard
+                                        product={p}
+                                        cartItems={cart}
+                                        onAdd={addToCart}
+                                        onRemove={removeFromCart}
+                                    />
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>
@@ -720,8 +760,8 @@ export default function MenuPage() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                                     {cart.map(i => (
-                                        <span key={i.id} style={{ fontSize: 12, color: theme.muted }}>
-                                            {i.qty}× {i.name}
+                                        <span key={`${i.id}-${i.selectedFlavor || 'base'}`} style={{ fontSize: 12, color: theme.muted }}>
+                                            {i.qty}× {i.name}{i.selectedFlavor ? ` (${i.selectedFlavor})` : ''}
                                         </span>
                                     ))}
                                 </div>
