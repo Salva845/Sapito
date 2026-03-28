@@ -1,6 +1,6 @@
 // src/pages/OwnerPage.jsx
 // ─── Ruta: /dueno ──────────────────────────────────────────────────────────────
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { canAccessOwner } from '../lib/auth'
 import { theme, globalCss } from '../lib/theme'
@@ -8,9 +8,37 @@ import { theme, globalCss } from '../lib/theme'
 const CATEGORIES = ['Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES', 'HAMBURGUESAS', 'ALITAS, PAPAS Y MAS',
     'HOT DOGS', 'PA BOTANEAR', 'SNACKS', 'CARNES', 'BURRITOS', 'TACOS', 'ALAMBRES', 'QUESOS FUNDIDOS Y COSTRAS',
     'ENSALADAS', 'CERVEZAS', 'COCTELERIA', 'BEBIDAS SIN ALCOHOL']
-const EMOJIS = ['🧀', '🍗', '🌭', '🌯', '🫓', '🥙', '🍔', '🥗', '🍟', '🥪', '🧆', '🌮']
+const EMOJIS = ['🧀', '🍗', '🌭', '🌯', '🫓', '🥙', '🍔', '🥗', '🍟', '🥪', '🧆', '🌮',
+    '🍺', '🍹', '🥤', '☕', '🥩', '🫕', '🌶️', '🧅', '🍤', '🫙']
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+/** Devuelve true si el valor del campo photo es una URL (no emoji) */
+function isUrl(str) {
+    return typeof str === 'string' && (str.startsWith('http') || str.startsWith('/'))
+}
+
+/** Renderiza foto o emoji según el tipo de valor */
+export function ProductPhoto({ photo, size = 38, borderRadius = 8 }) {
+    if (isUrl(photo)) {
+        return (
+            <img
+                src={photo}
+                alt=""
+                style={{
+                    width: size,
+                    height: size,
+                    objectFit: 'cover',
+                    borderRadius,
+                    display: 'block',
+                    background: theme.surface,
+                }}
+            />
+        )
+    }
+    return <span style={{ fontSize: size * 0.7, lineHeight: 1 }}>{photo || '🍔'}</span>
+}
+
 function Spinner() {
     return (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
@@ -29,13 +57,76 @@ function StatCard({ icon, label, value, color }) {
     )
 }
 
+// ── BUCKET NAME — crea este bucket en Supabase Storage ────────────────────────
+const BUCKET = 'product-photos'
+
 // ── ProductForm ───────────────────────────────────────────────────────────────
 function ProductForm({ initial, onSave, onCancel }) {
     const [form, setForm] = useState(
-        initial || { name: '', category: 'Botana', price: '', description: '', photo: '🍔', available: true }
+        initial || { name: '', category: CATEGORIES[0], price: '', description: '', photo: '🍔', available: true }
     )
     const [saving, setSaving] = useState(false)
+    // 'emoji' | 'upload'
+    const [photoMode, setPhotoMode] = useState(isUrl(initial?.photo) ? 'upload' : 'emoji')
+    const [uploading, setUploading] = useState(false)
+    const [uploadError, setUploadError] = useState('')
+    const [previewUrl, setPreviewUrl] = useState(isUrl(initial?.photo) ? initial.photo : null)
+    const fileRef = useRef()
+
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+    // ── subir imagen a Supabase Storage ───────────────────────────────────────
+    const handleFileChange = async (e) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        if (!file.type.startsWith('image/')) { setUploadError('Solo se aceptan imágenes (jpg, png, webp…)'); return }
+        if (file.size > 4 * 1024 * 1024) { setUploadError('La imagen no debe superar 4 MB'); return }
+
+        setUploadError('')
+        setUploading(true)
+
+        // Preview local inmediato
+        const localUrl = URL.createObjectURL(file)
+        setPreviewUrl(localUrl)
+
+        try {
+            const ext = file.name.split('.').pop()
+            const path = `products/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+            const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false })
+            if (upErr) throw upErr
+
+            const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
+            set('photo', data.publicUrl)
+            setPreviewUrl(data.publicUrl)
+        } catch (err) {
+            console.error(err)
+            setUploadError('Error al subir la imagen. Verifica que el bucket "product-photos" exista y sea público.')
+            setPreviewUrl(null)
+            set('photo', '🍔')
+        } finally {
+            setUploading(false)
+        }
+    }
+
+    const handleRemovePhoto = () => {
+        setPreviewUrl(null)
+        set('photo', '🍔')
+        setPhotoMode('emoji')
+        if (fileRef.current) fileRef.current.value = ''
+    }
+
+    const switchMode = (mode) => {
+        setPhotoMode(mode)
+        setUploadError('')
+        if (mode === 'emoji') {
+            setPreviewUrl(null)
+            // Mantén el emoji actual si ya había uno, si no usa default
+            if (isUrl(form.photo)) set('photo', '🍔')
+        } else {
+            // Al pasar a upload, si ya hay URL se muestra el preview
+            if (isUrl(form.photo)) setPreviewUrl(form.photo)
+        }
+    }
 
     const handleSave = async () => {
         if (!form.name || !form.price) { alert('Nombre y precio son obligatorios'); return }
@@ -51,35 +142,144 @@ function ProductForm({ initial, onSave, onCancel }) {
             </h3>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {/* Nombre */}
                 <div style={{ gridColumn: 'span 2' }}>
                     <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 4 }}>NOMBRE *</label>
                     <input value={form.name} onChange={e => set('name', e.target.value)} style={{ width: '100%', padding: '9px 12px' }} placeholder="Ej: Nachos Supremos" />
                 </div>
+
+                {/* Categoría */}
                 <div>
                     <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 4 }}>CATEGORÍA</label>
                     <select value={form.category} onChange={e => set('category', e.target.value)} style={{ width: '100%', padding: '9px 12px' }}>
                         {CATEGORIES.map(c => <option key={c}>{c}</option>)}
                     </select>
                 </div>
+
+                {/* Precio */}
                 <div>
                     <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 4 }}>PRECIO ($) *</label>
                     <input type="number" value={form.price} onChange={e => set('price', e.target.value)} style={{ width: '100%', padding: '9px 12px' }} placeholder="0.00" />
                 </div>
+
+                {/* Descripción */}
                 <div style={{ gridColumn: 'span 2' }}>
                     <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 4 }}>DESCRIPCIÓN</label>
                     <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={2} style={{ width: '100%', padding: '9px 12px', resize: 'none' }} placeholder="Descripción breve del platillo..." />
                 </div>
+
+                {/* ── FOTO / ICONO ─────────────────────────────────────────── */}
                 <div style={{ gridColumn: 'span 2' }}>
-                    <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 6 }}>ICONO / FOTO</label>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {EMOJIS.map(e => (
-                            <button key={e} onClick={() => set('photo', e)}
-                                style={{ width: 38, height: 38, fontSize: 20, borderRadius: 8, background: form.photo === e ? theme.accentDim : theme.card, border: `1px solid ${form.photo === e ? theme.accent : theme.border}` }}>
-                                {e}
+                    <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 8 }}>FOTO / ICONO</label>
+
+                    {/* Tabs selector */}
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                        {[
+                            { id: 'emoji', label: '😀 Emoji' },
+                            { id: 'upload', label: '📷 Foto' },
+                        ].map(({ id, label }) => (
+                            <button
+                                key={id}
+                                onClick={() => switchMode(id)}
+                                style={{
+                                    padding: '6px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                                    background: photoMode === id ? theme.accentDim : theme.card,
+                                    color: photoMode === id ? theme.accent : theme.muted,
+                                    border: `1px solid ${photoMode === id ? theme.accent : theme.border}`,
+                                }}
+                            >
+                                {label}
                             </button>
                         ))}
                     </div>
+
+                    {/* Panel emoji */}
+                    {photoMode === 'emoji' && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {EMOJIS.map(e => (
+                                <button key={e} onClick={() => set('photo', e)}
+                                    style={{ width: 38, height: 38, fontSize: 20, borderRadius: 8, background: form.photo === e ? theme.accentDim : theme.card, border: `1px solid ${form.photo === e ? theme.accent : theme.border}` }}>
+                                    {e}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Panel upload */}
+                    {photoMode === 'upload' && (
+                        <div>
+                            {/* Preview */}
+                            {previewUrl ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+                                    <img
+                                        src={previewUrl}
+                                        alt="preview"
+                                        style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 10, border: `1px solid ${theme.border}`, background: theme.card }}
+                                    />
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <span style={{ color: theme.green, fontSize: 13, fontWeight: 600 }}>✓ Foto cargada</span>
+                                        <button
+                                            onClick={handleRemovePhoto}
+                                            style={{ padding: '5px 12px', borderRadius: 7, fontSize: 12, background: theme.red + '22', color: theme.red, border: `1px solid ${theme.red}44` }}
+                                        >
+                                            Quitar foto
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                // Drop zone / click to upload
+                                <div
+                                    onClick={() => !uploading && fileRef.current?.click()}
+                                    style={{
+                                        border: `2px dashed ${uploadError ? theme.red : theme.border}`,
+                                        borderRadius: 10,
+                                        padding: '24px 16px',
+                                        textAlign: 'center',
+                                        cursor: uploading ? 'wait' : 'pointer',
+                                        background: theme.card,
+                                        marginBottom: 8,
+                                        transition: 'border-color .2s',
+                                    }}
+                                >
+                                    {uploading ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                                            <div style={{ width: 24, height: 24, border: `2px solid ${theme.border}`, borderTopColor: theme.accent, borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                                            <span style={{ color: theme.muted, fontSize: 13 }}>Subiendo imagen…</span>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div style={{ fontSize: 32, marginBottom: 6 }}>📷</div>
+                                            <div style={{ color: theme.text, fontSize: 13, fontWeight: 600 }}>Toca para seleccionar una foto</div>
+                                            <div style={{ color: theme.muted, fontSize: 11, marginTop: 4 }}>JPG, PNG o WEBP · máx. 4 MB</div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
+                            {uploadError && (
+                                <p style={{ color: theme.red, fontSize: 12, marginTop: 4 }}>⚠ {uploadError}</p>
+                            )}
+
+                            {/* Input file oculto */}
+                            <input
+                                ref={fileRef}
+                                type="file"
+                                accept="image/*"
+                                style={{ display: 'none' }}
+                                onChange={handleFileChange}
+                            />
+
+                            {/* Si no hay foto aún, muestra aviso del emoji de respaldo */}
+                            {!previewUrl && !uploading && (
+                                <p style={{ color: theme.muted, fontSize: 11, marginTop: 8 }}>
+                                    Si no subes foto, se usará el emoji seleccionado como ícono.
+                                </p>
+                            )}
+                        </div>
+                    )}
                 </div>
+
+                {/* Disponible */}
                 <div>
                     <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 6 }}>DISPONIBLE</label>
                     <button onClick={() => set('available', !form.available)}
@@ -91,9 +291,9 @@ function ProductForm({ initial, onSave, onCancel }) {
 
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
                 <button onClick={onCancel} style={{ flex: 1, padding: 11, borderRadius: 10, background: theme.card, border: `1px solid ${theme.border}`, color: theme.muted, fontWeight: 600 }}>Cancelar</button>
-                <button onClick={handleSave} disabled={saving}
-                    style={{ flex: 2, padding: 11, borderRadius: 10, background: saving ? theme.border : theme.accent, color: 'white', fontWeight: 700 }}>
-                    {saving ? 'Guardando...' : 'Guardar'}
+                <button onClick={handleSave} disabled={saving || uploading}
+                    style={{ flex: 2, padding: 11, borderRadius: 10, background: (saving || uploading) ? theme.border : theme.accent, color: 'white', fontWeight: 700 }}>
+                    {saving ? 'Guardando…' : uploading ? 'Subiendo foto…' : 'Guardar'}
                 </button>
             </div>
         </div>
@@ -195,9 +395,11 @@ export default function OwnerPage() {
 
     // ── Filtrado de bills ──────────────────────────────────────────────────────
     const getWeekRange = (dateStr) => {
-        const d = new Date(dateStr)
-        const day = d.getDay()
-        const mon = new Date(d); mon.setDate(d.getDate() - day + (day === 0 ? -6 : 1))
+        const d = dateStr
+        // devuelve rango ISO string para comparar con slice(0,10)
+        const date = new Date(dateStr)
+        const day = date.getDay()
+        const mon = new Date(date); mon.setDate(date.getDate() - day + (day === 0 ? -6 : 1))
         const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
         return [mon.toISOString().slice(0, 10), sun.toISOString().slice(0, 10)]
     }
@@ -212,6 +414,7 @@ export default function OwnerPage() {
     })
 
     const totalRevenue = filteredBills.reduce((s, b) => s + Number(b.total), 0)
+
     const productSales = {}
     filteredBills.forEach(b => (b.bill_items || []).forEach(it => {
         if (!productSales[it.name]) productSales[it.name] = 0
@@ -220,8 +423,8 @@ export default function OwnerPage() {
     const topProducts = Object.entries(productSales).sort((a, b) => b[1] - a[1]).slice(0, 5)
 
     // ── Resumen del día ────────────────────────────────────────────────────────
-    const today = new Date().toISOString().slice(0, 10)
-    const todayBills = bills.filter(b => b.closed_at.slice(0, 10) === today)
+    const todayStr = new Date().toISOString().slice(0, 10)
+    const todayBills = bills.filter(b => b.closed_at.slice(0, 10) === todayStr)
     const todayTotal = todayBills.reduce((s, b) => s + Number(b.total), 0)
     const todaySales = {}
     todayBills.forEach(b => (b.bill_items || []).forEach(it => {
@@ -230,92 +433,67 @@ export default function OwnerPage() {
     }))
     const topToday = Object.entries(todaySales).sort((a, b) => b[1] - a[1]).slice(0, 3)
 
-    // ── LOGIN ──────────────────────────────────────────────────────────────────
+    // ── Login / gate ───────────────────────────────────────────────────────────
     const attempt = async () => {
         setLoginErr('')
-        if (!email || !pass) {
-            setLoginErr('Correo y contraseña son obligatorios.')
-            return
-        }
-
+        if (!email || !pass) { setLoginErr('Correo y contraseña son obligatorios.'); return }
         setLoginLoading(true)
         const { error } = await supabase.auth.signInWithPassword({ email, password: pass })
         setLoginLoading(false)
-
-        if (error) {
-            setLoginErr('Credenciales inválidas o usuario sin acceso.')
-        } else {
-            setPass('')
-        }
+        if (error) setLoginErr('Credenciales inválidas o usuario sin acceso.')
+        else setPass('')
     }
 
-    const handleLogout = async () => {
-        await supabase.auth.signOut()
-    }
+    const handleLogout = async () => { await supabase.auth.signOut() }
 
-    if (checkingSession) {
-        return (
-            <>
-                <style>{globalCss}</style>
-                <div style={{ minHeight: '100vh', background: theme.bg }}>
-                    <Spinner />
+    if (checkingSession) return (
+        <>
+            <style>{globalCss}</style>
+            <div style={{ background: theme.bg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Spinner />
+            </div>
+        </>
+    )
+
+    // ── Auth gate ──────────────────────────────────────────────────────────────
+    if (!authed) return (
+        <>
+            <style>{globalCss}</style>
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
+                <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 380 }}>
+                    <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 34, color: theme.accent, letterSpacing: 3, marginBottom: 4 }}>PANEL DEL DUEÑO</h1>
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                        style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${theme.border}` }}
+                        placeholder="Correo" autoFocus />
+                    <input type="password" value={pass} onChange={e => setPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && attempt()}
+                        style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${loginErr ? theme.red : theme.border}` }}
+                        placeholder="Contraseña" />
+                    {loginErr && <p style={{ color: theme.red, fontSize: 12, marginBottom: 8 }}>{loginErr}</p>}
+                    <button disabled={loginLoading} onClick={attempt}
+                        style={{ width: '100%', padding: 14, borderRadius: 10, background: loginLoading ? theme.border : theme.accent, color: 'white', fontWeight: 700, fontSize: 15 }}>
+                        {loginLoading ? 'Validando...' : 'Entrar'}
+                    </button>
                 </div>
-            </>
-        )
-    }
+            </div>
+        </>
+    )
 
-    if (!authed) {
-        return (
-            <>
-                <style>{globalCss}</style>
-                <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
-                    <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 380 }}>
-                        <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 34, color: theme.accent, letterSpacing: 3, marginBottom: 4 }}>PANEL DEL DUEÑO</h1>
-                        <input
-                            type="email"
-                            value={email}
-                            onChange={e => setEmail(e.target.value)}
-                            style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${theme.border}` }}
-                            placeholder="Correo"
-                            autoFocus
-                        />
-                        <input
-                            type="password" value={pass}
-                            onChange={e => setPass(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && attempt()}
-                            style={{ width: '100%', padding: '12px 16px', fontSize: 15, marginBottom: 10, border: `1px solid ${loginErr ? theme.red : theme.border}` }}
-                            placeholder="Contraseña"
-                        />
-                        {loginErr && <p style={{ color: theme.red, fontSize: 12, marginBottom: 8 }}>{loginErr}</p>}
-                        <button disabled={loginLoading} onClick={attempt} style={{ width: '100%', padding: 14, borderRadius: 10, background: loginLoading ? theme.border : theme.accent, color: 'white', fontWeight: 700, fontSize: 15 }}>
-                            {loginLoading ? 'Validando...' : 'Entrar'}
-                        </button>
-                    </div>
+    if (!ownerAllowed) return (
+        <>
+            <style>{globalCss}</style>
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
+                <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 430, textAlign: 'center' }}>
+                    <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 3, marginBottom: 10 }}>ACCESO DENEGADO</h1>
+                    <p style={{ color: theme.muted, fontSize: 14, marginBottom: 20 }}>Esta sección es exclusiva para el dueño.</p>
+                    <button onClick={handleLogout} style={{ padding: '10px 16px', borderRadius: 10, background: theme.accent, color: 'white', fontWeight: 700, border: 'none' }}>
+                        Cerrar sesión
+                    </button>
                 </div>
-            </>
-        )
-    }
+            </div>
+        </>
+    )
 
-    if (!ownerAllowed) {
-        return (
-            <>
-                <style>{globalCss}</style>
-                <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
-                    <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 430, textAlign: 'center' }}>
-                        <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 3, marginBottom: 10 }}>ACCESO DENEGADO</h1>
-                        <p style={{ color: theme.muted, fontSize: 14, marginBottom: 20 }}>
-                            Esta sección es exclusiva para el dueño.
-                        </p>
-                        <button onClick={handleLogout} style={{ padding: '10px 16px', borderRadius: 10, background: theme.accent, color: 'white', fontWeight: 700, border: 'none' }}>
-                            Cerrar sesión
-                        </button>
-                    </div>
-                </div>
-            </>
-        )
-    }
-
-    // ── DASHBOARD ──────────────────────────────────────────────────────────────
+    // ── Dashboard ──────────────────────────────────────────────────────────────
     return (
         <>
             <style>{globalCss}</style>
@@ -323,7 +501,7 @@ export default function OwnerPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                     <div>
                         <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 38, color: theme.accent, letterSpacing: 3, lineHeight: 1 }}>PANEL DEL DUEÑO</h1>
-                        <p style={{ color: theme.muted, fontSize: 13 }}>{session?.user?.email || 'El Rincón'}</p>
+                        <p style={{ color: theme.muted, fontSize: 13 }}>{session?.user?.email || ''}</p>
                     </div>
                     <button onClick={handleLogout} style={{ padding: '7px 14px', borderRadius: 8, background: theme.card, border: `1px solid ${theme.border}`, color: theme.muted, fontSize: 12 }}>
                         Salir
@@ -342,7 +520,7 @@ export default function OwnerPage() {
 
                 {loading ? <Spinner /> : (
                     <>
-                        {/* ── RESUMEN ────────────────────────────────────────────────── */}
+                        {/* ── RESUMEN ──────────────────────────────────────────────── */}
                         {tab === 'resumen' && (
                             <div className="fade-in">
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20 }}>
@@ -368,16 +546,18 @@ export default function OwnerPage() {
                             </div>
                         )}
 
-                        {/* ── HISTORIAL ──────────────────────────────────────────────── */}
+                        {/* ── HISTORIAL ────────────────────────────────────────────── */}
                         {tab === 'historial' && (
                             <div className="fade-in">
                                 {/* Filtros */}
-                                <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                                    {['dia', 'semana', 'mes', 'ano'].map(m => (
-                                        <button key={m} onClick={() => setFilterMode(m)}
-                                            style={{ padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: filterMode === m ? theme.accent : theme.card, color: filterMode === m ? 'white' : theme.muted, border: `1px solid ${filterMode === m ? theme.accent : theme.border}`, textTransform: 'capitalize' }}>
-                                            {m === 'dia' ? 'Día' : m === 'semana' ? 'Semana' : m === 'mes' ? 'Mes' : 'Año'}
-                                        </button>
+                                <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                                    {[['dia', 'Día'], ['semana', 'Semana'], ['mes', 'Mes'], ['ano', 'Año']].map(([m, l]) => (
+                                        <button key={m} onClick={() => setFilterMode(m)} style={{
+                                            padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                                            background: filterMode === m ? theme.accentDim : theme.card,
+                                            color: filterMode === m ? theme.accent : theme.muted,
+                                            border: `1px solid ${filterMode === m ? theme.accent : theme.border}`,
+                                        }}>{l}</button>
                                     ))}
                                     {filterMode === 'dia' && <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} style={{ padding: '6px 10px', fontSize: 13 }} />}
                                     {filterMode === 'semana' && <input type="date" value={filterWeek} onChange={e => setFilterWeek(e.target.value)} style={{ padding: '6px 10px', fontSize: 13 }} />}
@@ -450,7 +630,14 @@ export default function OwnerPage() {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                     {products.map(p => (
                                         <div key={p.id} style={{ background: theme.card, borderRadius: 12, border: `1px solid ${theme.border}`, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                                            <span style={{ fontSize: 28 }}>{p.photo}</span>
+                                            {/* Muestra imagen o emoji según el tipo */}
+                                            <div style={{ width: 48, height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.surface, borderRadius: 10, overflow: 'hidden' }}>
+                                                {isUrl(p.photo) ? (
+                                                    <img src={p.photo} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                ) : (
+                                                    <span style={{ fontSize: 26 }}>{p.photo}</span>
+                                                )}
+                                            </div>
                                             <div style={{ flex: 1 }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                     <span style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</span>

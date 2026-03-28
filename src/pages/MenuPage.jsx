@@ -10,6 +10,11 @@ const CATEGORIES = ['Todos', 'Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIA
 const STATUS_LABEL = { recibido: 'Recibido', preparando: 'Preparando...', listo: '¡Listo! 🎉' }
 const STATUS_COLOR = { recibido: theme.blue, preparando: theme.gold, listo: theme.green }
 
+/** true si el campo photo es una URL de imagen (no emoji) */
+function isUrl(str) {
+    return typeof str === 'string' && (str.startsWith('http') || str.startsWith('/'))
+}
+
 function useTableId() {
     const params = new URLSearchParams(window.location.search)
     return params.get('mesa')
@@ -42,9 +47,12 @@ function ProductCard({ product, qty, onAdd, onRemove }) {
                 width: 90, minHeight: 90, flexShrink: 0,
                 background: theme.surface,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 38,
+                fontSize: 38, overflow: 'hidden',
             }}>
-                {product.photo}
+                {isUrl(product.photo)
+                    ? <img src={product.photo} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    : product.photo
+                }
             </div>
             <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
@@ -127,7 +135,12 @@ function OrderTracker({ tableId, sessionOrderIds }) {
                         padding: '8px 10px', borderRadius: 8,
                         background: theme.card, border: `1px solid ${theme.border}`,
                     }}>
-                        <span style={{ fontSize: 22 }}>{item.photo}</span>
+                        <span style={{ fontSize: 22, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', borderRadius: 6 }}>
+                            {isUrl(item.photo)
+                                ? <img src={item.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                : item.photo
+                            }
+                        </span>
                         <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name}</div>
                             <div style={{ color: theme.muted, fontSize: 12 }}>x{item.qty}</div>
