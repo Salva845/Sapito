@@ -5,7 +5,7 @@ import MenuPage from './pages/MenuPage'
 import KitchenPage from './pages/KitchenPage'
 import OwnerPage from './pages/OwnerPage'
 import GenerateQRs from './pages/GenerateQRs'
-import TableSelectionPage from './pages/TableSelectionPage'
+import InvalidQrPage from './pages/InvalidQrPage'
 
 export default function App() {
   return (
@@ -23,8 +23,8 @@ export default function App() {
         {/* Utilidad: genera e imprime los QR de cada mesa */}
         <Route path="/qr" element={<GenerateQRs />} />
 
-        {/* Pantalla informativa para clientes sin mesa/URL incorrecta */}
-        <Route path="/inicio" element={<TableSelectionPage />} />
+        {/* Pantalla informativa pública para clientes */}
+        <Route path="/inicio" element={<InvalidQrPage />} />
 
         {/* Fallback global */}
         <Route path="*" element={<Navigate to="/inicio" replace />} />
