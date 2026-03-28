@@ -8,6 +8,7 @@ import { theme, globalCss } from '../lib/theme'
 const CATEGORIES = ['Todos', 'Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES', 'HAMBURGUESAS', 'ALITAS, PAPAS Y MAS',
     'HOT DOGS', 'PA BOTANEAR', 'SNACKS', 'CARNES', 'BURRITOS', 'TACOS', 'ALAMBRES', 'QUESOS FUNDIDOS Y COSTRAS',
     'ENSALADAS', 'CERVEZAS', 'COCTELERIA', 'BEBIDAS SIN ALCOHOL']
+const ESTABLISHMENT_LOGO_PATH = '/logo_completo.png'
 const STATUS_LABEL = { recibido: 'Recibido', preparando: 'Preparando...', listo: '¡Listo! 🎉' }
 const STATUS_COLOR = { recibido: theme.blue, preparando: theme.gold, listo: theme.green }
 
@@ -86,8 +87,8 @@ function ProductCard({ product, cartItems, onAdd, onRemove }) {
                     : product.photo
                 }
             </div>
-                <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <div>
+            <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                         <span style={{ fontWeight: 600, fontSize: 15, lineHeight: 1.2 }}>{product.name}</span>
                         <span style={{ color: theme.accent, fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
@@ -344,6 +345,7 @@ export default function MenuPage() {
     const [showBillModal, setShowBillModal] = useState(false)
     const [showAccountToast, setShowAccountToast] = useState(false) // toast al solicitar
     const [tableExists, setTableExists] = useState(null)
+    const [showHeaderLogo, setShowHeaderLogo] = useState(true)
 
     const resetClientOrderFlow = useCallback(() => {
         setSessionOrderIds([])
@@ -650,11 +652,50 @@ export default function MenuPage() {
                     padding: '14px 18px',
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                            <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 30, color: theme.accent, letterSpacing: 3, lineHeight: 1 }}>
-                                SAPITO
-                            </h1>
-                            <p style={{ color: theme.muted, fontSize: 12 }}>Mesa #{tableId}</p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                            <div style={{
+                                width: 38,
+                                height: 38,
+                                borderRadius: 10,
+                                border: `1px solid ${theme.border}`,
+                                background: theme.card,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                                overflow: 'hidden',
+                            }}>
+                                {showHeaderLogo
+                                    ? (
+                                        <img
+                                            src={ESTABLISHMENT_LOGO_PATH}
+                                            alt="Logo del establecimiento"
+                                            onError={() => setShowHeaderLogo(false)}
+                                            style={{
+                                                width: '100%',
+                                                height: '100%',
+                                                objectFit: 'contain',
+                                                padding: 4,
+                                            }}
+                                        />
+                                    ) : (
+                                        <span style={{
+                                            fontSize: 9,
+                                            color: theme.muted,
+                                            letterSpacing: 0.7,
+                                            fontWeight: 700,
+                                        }}>
+                                            LOGO
+                                        </span>
+                                    )
+                                }
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 30, color: theme.accent, letterSpacing: 3, lineHeight: 1 }}>
+                                    SAPITO
+                                </h1>
+                                <p style={{ color: theme.muted, fontSize: 12 }}>Mesa #{tableId}</p>
+                            </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
 
