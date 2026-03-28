@@ -11,6 +11,8 @@ const CATEGORIES = ['Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES',
 const EMOJIS = ['🧀', '🍗', '🌭', '🌯', '🫓', '🥙', '🍔', '🥗', '🍟', '🥪', '🧆', '🌮',
     '🍺', '🍹', '🥤', '☕', '🥩', '🫕', '🌶️', '🧅', '🍤', '🫙']
 
+const BUSINESS_TIMEZONE = 'America/Mexico_City'
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /** Devuelve true si el valor del campo photo es una URL (no emoji) */
@@ -45,6 +47,40 @@ function Spinner() {
             <div style={{ width: 32, height: 32, border: `3px solid ${theme.border}`, borderTopColor: theme.accent, borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
         </div>
     )
+}
+
+const getPartsInTimeZone = (dateValue, timeZone = BUSINESS_TIMEZONE) => {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    })
+    const parts = formatter.formatToParts(new Date(dateValue))
+    const year = parts.find(p => p.type === 'year')?.value
+    const month = parts.find(p => p.type === 'month')?.value
+    const day = parts.find(p => p.type === 'day')?.value
+    return { year, month, day }
+}
+
+const getDateKeyInBusinessTz = (dateValue, timeZone = BUSINESS_TIMEZONE) => {
+    const { year, month, day } = getPartsInTimeZone(dateValue, timeZone)
+    return `${year}-${month}-${day}`
+}
+
+const getMonthKeyInBusinessTz = (dateValue, timeZone = BUSINESS_TIMEZONE) => {
+    const { year, month } = getPartsInTimeZone(dateValue, timeZone)
+    return `${year}-${month}`
+}
+
+const getYearKeyInBusinessTz = (dateValue, timeZone = BUSINESS_TIMEZONE) => {
+    const { year } = getPartsInTimeZone(dateValue, timeZone)
+    return year
+}
+
+const parseDateKey = (dateKey) => {
+    const [year, month, day] = dateKey.split('-').map(Number)
+    return new Date(year, month - 1, day, 12, 0, 0)
 }
 
 function StatCard({ icon, label, value, color }) {
@@ -331,10 +367,10 @@ export default function OwnerPage() {
 
     // Filtros historial
     const [filterMode, setFilterMode] = useState('dia')
-    const [filterDate, setFilterDate] = useState(new Date().toISOString().slice(0, 10))
-    const [filterWeek, setFilterWeek] = useState(new Date().toISOString().slice(0, 10))
-    const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7))
-    const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString())
+    const [filterDate, setFilterDate] = useState(getDateKeyInBusinessTz(new Date()))
+    const [filterWeek, setFilterWeek] = useState(getDateKeyInBusinessTz(new Date()))
+    const [filterMonth, setFilterMonth] = useState(getMonthKeyInBusinessTz(new Date()))
+    const [filterYear, setFilterYear] = useState(getYearKeyInBusinessTz(new Date()))
     const authed = Boolean(session?.user)
     const ownerAllowed = canAccessOwner(session?.user)
 
@@ -418,21 +454,21 @@ export default function OwnerPage() {
 
     // ── Filtrado de bills ──────────────────────────────────────────────────────
     const getWeekRange = (dateStr) => {
-        const d = dateStr
-        // devuelve rango ISO string para comparar con slice(0,10)
-        const date = new Date(dateStr)
+        const date = parseDateKey(dateStr)
         const day = date.getDay()
-        const mon = new Date(date); mon.setDate(date.getDate() - day + (day === 0 ? -6 : 1))
-        const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
-        return [mon.toISOString().slice(0, 10), sun.toISOString().slice(0, 10)]
+        const mon = new Date(date)
+        mon.setDate(date.getDate() - day + (day === 0 ? -6 : 1))
+        const sun = new Date(mon)
+        sun.setDate(mon.getDate() + 6)
+        return [getDateKeyInBusinessTz(mon), getDateKeyInBusinessTz(sun)]
     }
 
     const filteredBills = bills.filter(b => {
-        const d = b.closed_at.slice(0, 10)
-        if (filterMode === 'dia') return d === filterDate
-        if (filterMode === 'semana') { const [s, e] = getWeekRange(filterWeek); return d >= s && d <= e }
-        if (filterMode === 'mes') return b.closed_at.slice(0, 7) === filterMonth
-        if (filterMode === 'ano') return b.closed_at.slice(0, 4) === filterYear
+        const billDate = getDateKeyInBusinessTz(b.closed_at)
+        if (filterMode === 'dia') return billDate === filterDate
+        if (filterMode === 'semana') { const [s, e] = getWeekRange(filterWeek); return billDate >= s && billDate <= e }
+        if (filterMode === 'mes') return getMonthKeyInBusinessTz(b.closed_at) === filterMonth
+        if (filterMode === 'ano') return getYearKeyInBusinessTz(b.closed_at) === filterYear
         return true
     })
 
@@ -446,8 +482,8 @@ export default function OwnerPage() {
     const topProducts = Object.entries(productSales).sort((a, b) => b[1] - a[1]).slice(0, 5)
 
     // ── Resumen del día ────────────────────────────────────────────────────────
-    const todayStr = new Date().toISOString().slice(0, 10)
-    const todayBills = bills.filter(b => b.closed_at.slice(0, 10) === todayStr)
+    const todayStr = getDateKeyInBusinessTz(new Date())
+    const todayBills = bills.filter(b => getDateKeyInBusinessTz(b.closed_at) === todayStr)
     const todayTotal = todayBills.reduce((s, b) => s + Number(b.total), 0)
     const todaySales = {}
     todayBills.forEach(b => (b.bill_items || []).forEach(it => {
