@@ -8,8 +8,7 @@ import { theme, globalCss } from '../lib/theme'
 const CATEGORIES = ['Todos', 'Entradas', 'CALDOS, COCTELES Y CEVICHES', 'ESPECIALIDADES', 'HAMBURGUESAS', 'ALITAS, PAPAS Y MAS',
     'HOT DOGS', 'PA BOTANEAR', 'SNACKS', 'CARNES', 'BURRITOS', 'TACOS', 'ALAMBRES', 'QUESOS FUNDIDOS Y COSTRAS',
     'ENSALADAS', 'CERVEZAS', 'COCTELERIA', 'BEBIDAS SIN ALCOHOL']
-// Logo local: coloca tu archivo en /public/logo-establecimiento.png (o cambia esta ruta)
-const ESTABLISHMENT_LOGO_PATH = '/logo-establecimiento.png'
+const ESTABLISHMENT_LOGO_PATH = '/logo_completo.png'
 const STATUS_LABEL = { recibido: 'Recibido', preparando: 'Preparando...', listo: '¡Listo! 🎉' }
 const STATUS_COLOR = { recibido: theme.blue, preparando: theme.gold, listo: theme.green }
 
@@ -88,8 +87,8 @@ function ProductCard({ product, cartItems, onAdd, onRemove }) {
                     : product.photo
                 }
             </div>
-                <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <div>
+            <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                         <span style={{ fontWeight: 600, fontSize: 15, lineHeight: 1.2 }}>{product.name}</span>
                         <span style={{ color: theme.accent, fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
