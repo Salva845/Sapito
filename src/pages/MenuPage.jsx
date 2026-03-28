@@ -342,6 +342,7 @@ export default function MenuPage() {
     const [billNew, setBillNew] = useState(false)    // para el pulso de notificación
     const [showBillModal, setShowBillModal] = useState(false)
     const [showAccountToast, setShowAccountToast] = useState(false) // toast al solicitar
+    const [tableExists, setTableExists] = useState(null)
 
     const resetClientOrderFlow = useCallback(() => {
         setSessionOrderIds([])
@@ -365,9 +366,33 @@ export default function MenuPage() {
         load()
     }, [])
 
+    // ── Validar mesa existente en BD ──────────────────────────────────────────
+    useEffect(() => {
+        if (!hasValidTableId) {
+            setTableExists(null)
+            return
+        }
+
+        let isMounted = true
+        const validateTable = async () => {
+            setTableExists(null)
+            const { data, error } = await supabase
+                .from('tables')
+                .select('id')
+                .eq('id', tableNum)
+                .maybeSingle()
+
+            if (!isMounted) return
+            setTableExists(!error && Boolean(data))
+        }
+
+        validateTable()
+        return () => { isMounted = false }
+    }, [hasValidTableId, tableNum])
+
     // ── Escuchar bill en tiempo real ──────────────────────────────────────────
     useEffect(() => {
-        if (!hasValidTableId) return
+        if (!hasValidTableId || !tableExists) return
 
         // Revisar si ya existe un bill enviado al montar (por si el cliente recarga)
         const checkBill = async () => {
@@ -418,11 +443,11 @@ export default function MenuPage() {
             .subscribe()
 
         return () => supabase.removeChannel(channel)
-    }, [hasValidTableId, tableId, tableNum])
+    }, [hasValidTableId, tableExists, tableId, tableNum])
 
     // ── Limpiar UI del cliente cuando la mesa fue liberada tras pago ─────────
     useEffect(() => {
-        if (!hasValidTableId) return
+        if (!hasValidTableId || !tableExists) return
 
         const syncTableState = async () => {
             const [{ data: table }, { data: openOrders }, { data: sentBill }] = await Promise.all([
@@ -451,7 +476,7 @@ export default function MenuPage() {
             .subscribe()
 
         return () => supabase.removeChannel(channel)
-    }, [hasValidTableId, tableId, tableNum, resetClientOrderFlow])
+    }, [hasValidTableId, tableExists, tableId, tableNum, resetClientOrderFlow])
 
     // ── Cart ──────────────────────────────────────────────────────────────────
     const addToCart = (product, flavor = '') => setCart(c => {
@@ -471,7 +496,7 @@ export default function MenuPage() {
 
     // ── Enviar pedido ─────────────────────────────────────────────────────────
     const handleSubmit = async () => {
-        if (!cart.length || submitting) return
+        if (!cart.length || submitting || !tableExists) return
         setSubmitting(true)
         try {
             const { data: order, error: oErr } = await supabase
@@ -504,6 +529,7 @@ export default function MenuPage() {
 
     // ── Solicitar cuenta ──────────────────────────────────────────────────────
     const handleRequestAccount = async () => {
+        if (!tableExists) return
         if (bill) {
             // Ya llegó la cuenta → abrir modal
             setBillNew(false)
@@ -571,6 +597,28 @@ export default function MenuPage() {
                     <span style={{ fontSize: 64 }}>⚠️</span>
                     <h2 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 2 }}>Mesa no válida</h2>
                     <p style={{ color: theme.muted }}>El código QR no contiene una mesa válida. Vuelve a escanearlo.</p>
+                </div>
+            </>
+        )
+    }
+
+    if (tableExists === null) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <Spinner />
+            </>
+        )
+    }
+
+    if (!tableExists) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24, textAlign: 'center' }}>
+                    <span style={{ fontSize: 64 }}>⚠️</span>
+                    <h2 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 2 }}>Mesa no especificada</h2>
+                    <p style={{ color: theme.muted }}>Escanea el código QR de tu mesa para acceder al menú.</p>
                 </div>
             </>
         )
