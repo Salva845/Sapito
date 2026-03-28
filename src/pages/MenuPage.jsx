@@ -145,6 +145,7 @@ function OrderTracker({ tableId, sessionOrderIds }) {
     }, [sessionOrderIds])
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         fetchItems()
         const channel = supabase
             .channel(`tracker-${tableId}-${Date.now()}`)
@@ -335,20 +336,6 @@ export default function MenuPage() {
         setShowAccountToast(false)
     }, [])
 
-    // ── Sin mesa ──────────────────────────────────────────────────────────────
-    if (!tableId) {
-        return (
-            <>
-                <style>{globalCss}</style>
-                <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24, textAlign: 'center' }}>
-                    <span style={{ fontSize: 64 }}>⚠️</span>
-                    <h2 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 2 }}>Mesa no especificada</h2>
-                    <p style={{ color: theme.muted }}>Escanea el código QR de tu mesa para acceder al menú.</p>
-                </div>
-            </>
-        )
-    }
-
     // ── Cargar productos ──────────────────────────────────────────────────────
     useEffect(() => {
         const load = async () => {
@@ -532,6 +519,20 @@ export default function MenuPage() {
         } finally {
             setRequestingAccount(false)
         }
+    }
+
+    // ── Sin mesa ──────────────────────────────────────────────────────────────
+    if (!tableId) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24, textAlign: 'center' }}>
+                    <span style={{ fontSize: 64 }}>⚠️</span>
+                    <h2 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 2 }}>Mesa no especificada</h2>
+                    <p style={{ color: theme.muted }}>Escanea el código QR de tu mesa para acceder al menú.</p>
+                </div>
+            </>
+        )
     }
 
     // ── Pantalla: pedido enviado ──────────────────────────────────────────────

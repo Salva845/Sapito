@@ -417,6 +417,7 @@ export default function OwnerPage() {
 
     useEffect(() => {
         if (!authed || !ownerAllowed) return
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setLoading(true)
         Promise.all([fetchProducts(), fetchBills()]).finally(() => setLoading(false))
     }, [authed, ownerAllowed, fetchProducts, fetchBills])
