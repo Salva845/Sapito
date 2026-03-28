@@ -14,7 +14,7 @@ import { theme, globalCss } from '../lib/theme'
  *
  * Cambia BASE_URL por tu dominio real o localhost durante desarrollo.
  */
-const BASE_URL = import.meta.env.VITE_BASE_URL || 'http://localhost:5173'
+const BASE_URL = import.meta.env.VITE_BASE_URL
 
 export default function GenerateQRs() {
     const [tables, setTables] = useState([])
