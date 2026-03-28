@@ -63,7 +63,7 @@ const BUCKET = 'product-photos'
 // ── ProductForm ───────────────────────────────────────────────────────────────
 function ProductForm({ initial, onSave, onCancel }) {
     const [form, setForm] = useState(
-        initial || { name: '', category: CATEGORIES[0], price: '', description: '', photo: '🍔', available: true }
+        initial || { name: '', category: CATEGORIES[0], price: '', description: '', photo: '🍔', flavors: '', available: true }
     )
     const [saving, setSaving] = useState(false)
     // 'emoji' | 'upload'
@@ -166,6 +166,20 @@ function ProductForm({ initial, onSave, onCancel }) {
                 <div style={{ gridColumn: 'span 2' }}>
                     <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 4 }}>DESCRIPCIÓN</label>
                     <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={2} style={{ width: '100%', padding: '9px 12px', resize: 'none' }} placeholder="Descripción breve del platillo..." />
+                </div>
+
+                {/* Sabores / variantes */}
+                <div style={{ gridColumn: 'span 2' }}>
+                    <label style={{ fontSize: 11, color: theme.muted, display: 'block', marginBottom: 4 }}>SABORES (opcionales)</label>
+                    <input
+                        value={form.flavors || ''}
+                        onChange={e => set('flavors', e.target.value)}
+                        style={{ width: '100%', padding: '9px 12px' }}
+                        placeholder="Ej: Fresa, Vainilla, Chocolate"
+                    />
+                    <small style={{ color: theme.muted, display: 'block', marginTop: 4, fontSize: 11 }}>
+                        Sepáralos por coma para que el cliente pueda elegir una variante.
+                    </small>
                 </div>
 
                 {/* ── FOTO / ICONO ─────────────────────────────────────────── */}
@@ -373,10 +387,19 @@ export default function OwnerPage() {
 
     // ── CRUD Productos ─────────────────────────────────────────────────────────
     const saveProduct = async (form) => {
+        const payload = {
+            name: form.name,
+            category: form.category,
+            price: form.price,
+            description: form.description,
+            photo: form.photo,
+            flavors: (form.flavors || '').trim(),
+            available: form.available,
+        }
         if (form.id) {
-            await supabase.from('products').update({ name: form.name, category: form.category, price: form.price, description: form.description, photo: form.photo, available: form.available }).eq('id', form.id)
+            await supabase.from('products').update(payload).eq('id', form.id)
         } else {
-            await supabase.from('products').insert({ name: form.name, category: form.category, price: form.price, description: form.description, photo: form.photo, available: form.available })
+            await supabase.from('products').insert(payload)
         }
         setEditProduct(null); setShowNew(false)
         await fetchProducts()
