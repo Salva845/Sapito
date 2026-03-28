@@ -22,8 +22,8 @@ export default function App() {
         {/* Utilidad: genera e imprime los QR de cada mesa */}
         <Route path="/qr" element={<GenerateQRs />} />
 
-        {/* Raíz → cocina por defecto (ajusta si prefieres otro) */}
-        <Route path="*" element={<Navigate to="/cocina" replace />} />
+        {/* Fallback público para clientes */}
+        <Route path="*" element={<Navigate to="/menu" replace />} />
       </Routes>
     </BrowserRouter>
   )
