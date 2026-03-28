@@ -729,9 +729,13 @@ export default function KitchenPage() {
     })
 
     useEffect(() => {
-        if (activeTables.length && !activeTables.includes(activeTable))
+        if (activeTables.length && !activeTables.includes(activeTable)) {
             setActiveTable(activeTables[0])
-        if (!activeTables.length) setActiveTable(null)
+        }
+        if (!activeTables.length) {
+            setActiveTable(null)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [JSON.stringify(activeTables)])
 
     const currentOrders = activeTable ? (byTable[activeTable] || []) : []
