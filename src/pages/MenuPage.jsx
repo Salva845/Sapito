@@ -17,7 +17,24 @@ function isUrl(str) {
 
 function useTableId() {
     const params = new URLSearchParams(window.location.search)
-    return params.get('mesa')
+    const tableIdParam = params.get('mesa')
+    const hasQueryParams = Array.from(params.keys()).length > 0
+
+    if (!tableIdParam) {
+        return { tableId: null, tableNum: null, isValid: false, hasQueryParams }
+    }
+
+    const normalizedTableId = tableIdParam.trim()
+    if (!/^\d+$/.test(normalizedTableId)) {
+        return { tableId: normalizedTableId, tableNum: null, isValid: false, hasQueryParams }
+    }
+
+    const tableNum = Number.parseInt(normalizedTableId, 10)
+    if (!Number.isInteger(tableNum) || tableNum <= 0) {
+        return { tableId: normalizedTableId, tableNum: null, isValid: false, hasQueryParams }
+    }
+
+    return { tableId: normalizedTableId, tableNum, isValid: true, hasQueryParams }
 }
 
 function normalizeFlavors(value) {
@@ -308,7 +325,7 @@ function BillModal({ bill, onClose }) {
 
 // ── Main MenuPage ─────────────────────────────────────────────────────────────
 export default function MenuPage() {
-    const tableId = useTableId()
+    const { tableId, tableNum, isValid: hasValidTableId, hasQueryParams } = useTableId()
 
     const [products, setProducts] = useState([])
     const [loading, setLoading] = useState(true)
@@ -325,6 +342,7 @@ export default function MenuPage() {
     const [billNew, setBillNew] = useState(false)    // para el pulso de notificación
     const [showBillModal, setShowBillModal] = useState(false)
     const [showAccountToast, setShowAccountToast] = useState(false) // toast al solicitar
+    const [tableExists, setTableExists] = useState(null)
 
     const resetClientOrderFlow = useCallback(() => {
         setSessionOrderIds([])
@@ -348,16 +366,40 @@ export default function MenuPage() {
         load()
     }, [])
 
+    // ── Validar mesa existente en BD ──────────────────────────────────────────
+    useEffect(() => {
+        if (!hasValidTableId) {
+            setTableExists(null)
+            return
+        }
+
+        let isMounted = true
+        const validateTable = async () => {
+            setTableExists(null)
+            const { data, error } = await supabase
+                .from('tables')
+                .select('id')
+                .eq('id', tableNum)
+                .maybeSingle()
+
+            if (!isMounted) return
+            setTableExists(!error && Boolean(data))
+        }
+
+        validateTable()
+        return () => { isMounted = false }
+    }, [hasValidTableId, tableNum])
+
     // ── Escuchar bill en tiempo real ──────────────────────────────────────────
     useEffect(() => {
-        if (!tableId) return
+        if (!hasValidTableId || !tableExists) return
 
         // Revisar si ya existe un bill enviado al montar (por si el cliente recarga)
         const checkBill = async () => {
             const { data } = await supabase
                 .from('bills')
                 .select('*, bill_items(*)')
-                .eq('table_id', parseInt(tableId))
+                .eq('table_id', tableNum)
                 .eq('status', 'sent')
                 .order('closed_at', { ascending: false })
                 .limit(1)
@@ -371,7 +413,7 @@ export default function MenuPage() {
             const { data } = await supabase
                 .from('bills')
                 .select('*, bill_items(*)')
-                .eq('table_id', parseInt(tableId))
+                .eq('table_id', tableNum)
                 .eq('status', 'sent')
                 .order('closed_at', { ascending: false })
                 .limit(1)
@@ -401,13 +443,11 @@ export default function MenuPage() {
             .subscribe()
 
         return () => supabase.removeChannel(channel)
-    }, [tableId])
+    }, [hasValidTableId, tableExists, tableId, tableNum])
 
     // ── Limpiar UI del cliente cuando la mesa fue liberada tras pago ─────────
     useEffect(() => {
-        if (!tableId) return
-
-        const tableNum = parseInt(tableId)
+        if (!hasValidTableId || !tableExists) return
 
         const syncTableState = async () => {
             const [{ data: table }, { data: openOrders }, { data: sentBill }] = await Promise.all([
@@ -436,7 +476,7 @@ export default function MenuPage() {
             .subscribe()
 
         return () => supabase.removeChannel(channel)
-    }, [tableId, resetClientOrderFlow])
+    }, [hasValidTableId, tableExists, tableId, tableNum, resetClientOrderFlow])
 
     // ── Cart ──────────────────────────────────────────────────────────────────
     const addToCart = (product, flavor = '') => setCart(c => {
@@ -456,12 +496,12 @@ export default function MenuPage() {
 
     // ── Enviar pedido ─────────────────────────────────────────────────────────
     const handleSubmit = async () => {
-        if (!cart.length || submitting) return
+        if (!cart.length || submitting || !tableExists) return
         setSubmitting(true)
         try {
             const { data: order, error: oErr } = await supabase
                 .from('orders')
-                .insert({ table_id: parseInt(tableId) })
+                .insert({ table_id: tableNum })
                 .select()
                 .single()
             if (oErr) throw oErr
@@ -474,7 +514,7 @@ export default function MenuPage() {
                     qty: i.qty, status: 'recibido',
                 }))
             )
-            await supabase.from('tables').update({ status: 'active' }).eq('id', parseInt(tableId))
+            await supabase.from('tables').update({ status: 'active' }).eq('id', tableNum)
 
             setSessionOrderIds(prev => [...prev, order.id])
             setCart([])
@@ -489,6 +529,7 @@ export default function MenuPage() {
 
     // ── Solicitar cuenta ──────────────────────────────────────────────────────
     const handleRequestAccount = async () => {
+        if (!tableExists) return
         if (bill) {
             // Ya llegó la cuenta → abrir modal
             setBillNew(false)
@@ -507,7 +548,7 @@ export default function MenuPage() {
         try {
             await supabase
                 .from('orders')
-                .insert({ table_id: parseInt(tableId), request_account: true })
+                .insert({ table_id: tableNum, request_account: true })
             setAccountRequested(true)
             // Mostrar toast temporal y regresar al menú
             setShowAccountToast(true)
@@ -523,6 +564,54 @@ export default function MenuPage() {
 
     // ── Sin mesa ──────────────────────────────────────────────────────────────
     if (!tableId) {
+        if (hasQueryParams) {
+            return (
+                <>
+                    <style>{globalCss}</style>
+                    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24, textAlign: 'center' }}>
+                        <span style={{ fontSize: 64 }}>⚠️</span>
+                        <h2 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 2 }}>Mesa no válida</h2>
+                        <p style={{ color: theme.muted }}>El código QR no contiene una mesa válida. Vuelve a escanearlo.</p>
+                    </div>
+                </>
+            )
+        }
+
+        return (
+            <>
+                <style>{globalCss}</style>
+                <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24, textAlign: 'center' }}>
+                    <span style={{ fontSize: 64 }}>⚠️</span>
+                    <h2 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 2 }}>Mesa no especificada</h2>
+                    <p style={{ color: theme.muted }}>Escanea el código QR de tu mesa para acceder al menú.</p>
+                </div>
+            </>
+        )
+    }
+
+    if (!hasValidTableId) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24, textAlign: 'center' }}>
+                    <span style={{ fontSize: 64 }}>⚠️</span>
+                    <h2 style={{ fontFamily: 'Bebas Neue', fontSize: 32, color: theme.red, letterSpacing: 2 }}>Mesa no válida</h2>
+                    <p style={{ color: theme.muted }}>El código QR no contiene una mesa válida. Vuelve a escanearlo.</p>
+                </div>
+            </>
+        )
+    }
+
+    if (tableExists === null) {
+        return (
+            <>
+                <style>{globalCss}</style>
+                <Spinner />
+            </>
+        )
+    }
+
+    if (!tableExists) {
         return (
             <>
                 <style>{globalCss}</style>
