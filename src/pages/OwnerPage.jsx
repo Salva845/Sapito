@@ -271,7 +271,6 @@ export default function OwnerPage() {
                 <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.bg, padding: 24 }}>
                     <div className="scale-in" style={{ background: theme.card, borderRadius: 18, border: `1px solid ${theme.border}`, padding: 36, width: '100%', maxWidth: 380 }}>
                         <h1 style={{ fontFamily: 'Bebas Neue', fontSize: 34, color: theme.accent, letterSpacing: 3, marginBottom: 4 }}>PANEL DEL DUEÑO</h1>
-                        <p style={{ color: theme.muted, fontSize: 13, marginBottom: 24 }}>Acceso restringido con Supabase Auth</p>
                         <input
                             type="email"
                             value={email}
