@@ -1,9 +1,9 @@
 // src/pages/GenerateQRs.jsx
 // ─── Instala: npm install qrcode.react ────────────────────────────────────────
+import { useEffect, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
+import { supabase } from '../lib/supabase'
 import { theme, globalCss } from '../lib/theme'
-
-const TABLES = [1, 2, 3, 4, 5, 6]
 
 /**
  * Cada QR apunta a:
@@ -17,6 +17,25 @@ const TABLES = [1, 2, 3, 4, 5, 6]
 const BASE_URL = import.meta.env.VITE_BASE_URL || 'http://localhost:5173'
 
 export default function GenerateQRs() {
+    const [tables, setTables] = useState([])
+    const [loading, setLoading] = useState(true)
+
+    useEffect(() => {
+        let isMounted = true
+        const loadTables = async () => {
+            const { data } = await supabase
+                .from('tables')
+                .select('id, status')
+                .neq('status', 'disabled')
+                .order('id', { ascending: true })
+            if (!isMounted) return
+            setTables(data || [])
+            setLoading(false)
+        }
+        loadTables()
+        return () => { isMounted = false }
+    }, [])
+
     const handlePrint = () => window.print()
 
     return (
@@ -39,7 +58,7 @@ export default function GenerateQRs() {
                                 CÓDIGOS QR
                             </h1>
                             <p style={{ color: theme.muted, marginTop: 4 }}>
-                                Imprime y coloca uno en cada mesa
+                                Imprime y coloca uno en cada mesa activa
                             </p>
                         </div>
                         <button
@@ -55,7 +74,12 @@ export default function GenerateQRs() {
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 24 }}>
-                        {TABLES.map(tableNum => {
+                        {!loading && tables.length === 0 && (
+                            <div style={{ color: theme.muted, fontSize: 14 }}>
+                                No hay mesas activas para generar QR.
+                            </div>
+                        )}
+                        {tables.map(({ id: tableNum }) => {
                             const url = `${BASE_URL}/menu?mesa=${tableNum}`
                             return (
                                 <div

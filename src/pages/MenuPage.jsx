@@ -379,12 +379,13 @@ export default function MenuPage() {
             setTableExists(null)
             const { data, error } = await supabase
                 .from('tables')
-                .select('id')
+                .select('id, status')
                 .eq('id', tableNum)
                 .maybeSingle()
 
             if (!isMounted) return
-            setTableExists(!error && Boolean(data))
+            const enabled = !error && Boolean(data) && data.status !== 'disabled'
+            setTableExists(enabled)
         }
 
         validateTable()
