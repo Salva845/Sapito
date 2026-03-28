@@ -5,7 +5,6 @@ import { supabase } from '../lib/supabase'
 import { canAccessKitchen } from '../lib/auth'
 import { theme, globalCss } from '../lib/theme'
 
-const TABLES = [1, 2, 3, 4, 5, 6]
 const CHUNK = 5
 
 const STATUS_COLORS = { recibido: theme.blue, preparando: theme.gold, listo: theme.green }
@@ -719,6 +718,16 @@ export default function KitchenPage() {
         byTable[o.table_id].push(o)
     })
     const activeTables = Object.keys(byTable).map(Number)
+    const enabledTableIds = Object.entries(tableStatusMap)
+        .filter(([, status]) => status !== 'disabled')
+        .map(([id]) => Number(id))
+        .sort((a, b) => a - b)
+    const displayTableIds = [...new Set([
+        ...enabledTableIds,
+        ...activeTables,
+        ...Object.keys(sentBills).map(Number),
+        ...accountReqs.map(o => o.table_id),
+    ])].sort((a, b) => a - b)
 
     // Mesas con cuenta ya enviada que recibieron pedidos nuevos despues — encargado debe reenviar
     const tablesNeedingBillUpdate = activeTables.filter(tid => {
@@ -1050,7 +1059,7 @@ export default function KitchenPage() {
                         <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 20 }}>
                             <h3 style={{ fontFamily: 'Bebas Neue', fontSize: 22, letterSpacing: 2, marginBottom: 12 }}>MESAS</h3>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, maxWidth: 380 }}>
-                                {TABLES.map(t => {
+                                {displayTableIds.map(t => {
                                     const hasOrders = !!byTable[t]
                                     const status = tableStatusMap[t] || 'free'
                                     const hasReq = accountReqs.some(o => o.table_id === t)

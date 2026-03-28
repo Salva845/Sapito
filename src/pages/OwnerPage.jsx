@@ -361,6 +361,7 @@ export default function OwnerPage() {
     const [tab, setTab] = useState('resumen')
     const [products, setProducts] = useState([])
     const [bills, setBills] = useState([])
+    const [tables, setTables] = useState([])
     const [loading, setLoading] = useState(false)
     const [editProduct, setEditProduct] = useState(null)
     const [showNew, setShowNew] = useState(false)
@@ -415,12 +416,20 @@ export default function OwnerPage() {
         if (data) setBills(data)
     }, [])
 
+    const fetchTables = useCallback(async () => {
+        const { data } = await supabase
+            .from('tables')
+            .select('id, status')
+            .order('id', { ascending: true })
+        if (data) setTables(data)
+    }, [])
+
     useEffect(() => {
         if (!authed || !ownerAllowed) return
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setLoading(true)
-        Promise.all([fetchProducts(), fetchBills()]).finally(() => setLoading(false))
-    }, [authed, ownerAllowed, fetchProducts, fetchBills])
+        Promise.all([fetchProducts(), fetchBills(), fetchTables()]).finally(() => setLoading(false))
+    }, [authed, ownerAllowed, fetchProducts, fetchBills, fetchTables])
 
     // ── CRUD Productos ─────────────────────────────────────────────────────────
     const saveProduct = async (form) => {
@@ -451,6 +460,58 @@ export default function OwnerPage() {
     const toggleAvailable = async (p) => {
         await supabase.from('products').update({ available: !p.available }).eq('id', p.id)
         await fetchProducts()
+    }
+
+    // ── CRUD Mesas ────────────────────────────────────────────────────────────
+    const getNextTableId = useCallback(() => {
+        const ids = new Set(tables.map(t => t.id))
+        let next = 1
+        while (ids.has(next)) next += 1
+        return next
+    }, [tables])
+
+    const addTable = async () => {
+        const nextId = getNextTableId()
+        const { error } = await supabase.from('tables').insert({ id: nextId, status: 'free' })
+        if (error) {
+            alert('No se pudo crear la mesa. Intenta de nuevo.')
+            return
+        }
+        await fetchTables()
+    }
+
+    const toggleTableActive = async (table) => {
+        const nextStatus = table.status === 'disabled' ? 'free' : 'disabled'
+        const { error } = await supabase
+            .from('tables')
+            .update({ status: nextStatus })
+            .eq('id', table.id)
+        if (error) {
+            alert('No se pudo actualizar la mesa.')
+            return
+        }
+        await fetchTables()
+    }
+
+    const deleteTable = async (table) => {
+        if (!window.confirm(`¿Eliminar la mesa #${table.id}? Esta acción quitará su QR de /qr.`)) return
+
+        const [{ data: openOrders }, { data: pendingBill }] = await Promise.all([
+            supabase.from('orders').select('id').eq('table_id', table.id).eq('closed', false).limit(1),
+            supabase.from('bills').select('id').eq('table_id', table.id).eq('status', 'sent').limit(1),
+        ])
+
+        if ((openOrders || []).length > 0 || (pendingBill || []).length > 0) {
+            alert('No puedes eliminar una mesa con pedidos o cuenta pendiente.')
+            return
+        }
+
+        const { error } = await supabase.from('tables').delete().eq('id', table.id)
+        if (error) {
+            alert('No se pudo eliminar la mesa.')
+            return
+        }
+        await fetchTables()
     }
 
     // ── Filtrado de bills ──────────────────────────────────────────────────────
@@ -570,7 +631,7 @@ export default function OwnerPage() {
 
                 {/* Tabs */}
                 <div style={{ display: 'flex', gap: 8, marginBottom: 20, borderBottom: `1px solid ${theme.border}`, paddingBottom: 12, flexWrap: 'wrap' }}>
-                    {[{ k: 'resumen', l: '📊 Resumen' }, { k: 'historial', l: '🧾 Historial' }, { k: 'menu', l: '🍽️ Menú' }].map(t => (
+                    {[{ k: 'resumen', l: '📊 Resumen' }, { k: 'historial', l: '🧾 Historial' }, { k: 'menu', l: '🍽️ Menú' }, { k: 'mesas', l: '🪑 Mesas' }].map(t => (
                         <button key={t.k} onClick={() => setTab(t.k)}
                             style={{ padding: '9px 18px', borderRadius: 10, fontWeight: 600, fontSize: 14, background: tab === t.k ? theme.accent : 'transparent', color: tab === t.k ? 'white' : theme.muted, border: `1px solid ${tab === t.k ? theme.accent : 'transparent'}` }}>
                             {t.l}
@@ -723,6 +784,71 @@ export default function OwnerPage() {
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ── MESAS ──────────────────────────────────────────────── */}
+                        {tab === 'mesas' && (
+                            <div className="fade-in">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 8, flexWrap: 'wrap' }}>
+                                    <div>
+                                        <h3 style={{ fontFamily: 'Bebas Neue', fontSize: 24, letterSpacing: 2 }}>GESTIÓN DE MESAS</h3>
+                                        <p style={{ color: theme.muted, fontSize: 12 }}>Al desactivar una mesa se invalida su QR. Al eliminarla desaparece de /qr hasta recrearla.</p>
+                                    </div>
+                                    <button
+                                        onClick={addTable}
+                                        style={{ padding: '10px 16px', borderRadius: 10, background: theme.accent, color: 'white', fontWeight: 700, fontSize: 13 }}
+                                    >
+                                        + Crear mesa
+                                    </button>
+                                </div>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {tables.map(table => {
+                                        const isDisabled = table.status === 'disabled'
+                                        const statusLabel = isDisabled ? 'Desactivada' : table.status === 'active' ? 'Activa' : 'Disponible'
+                                        const statusColor = isDisabled ? theme.red : table.status === 'active' ? theme.accent : theme.green
+
+                                        return (
+                                            <div key={table.id} style={{ background: theme.card, borderRadius: 12, border: `1px solid ${theme.border}`, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                                <div>
+                                                    <div style={{ fontWeight: 700, fontSize: 15 }}>Mesa #{table.id}</div>
+                                                    <div style={{ color: statusColor, fontSize: 12, marginTop: 2 }}>{statusLabel}</div>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                    <button
+                                                        onClick={() => toggleTableActive(table)}
+                                                        style={{
+                                                            padding: '6px 12px',
+                                                            borderRadius: 8,
+                                                            fontSize: 12,
+                                                            fontWeight: 700,
+                                                            background: isDisabled ? theme.green + '22' : theme.gold + '22',
+                                                            color: isDisabled ? theme.green : theme.gold,
+                                                            border: `1px solid ${isDisabled ? theme.green : theme.gold}44`,
+                                                        }}
+                                                    >
+                                                        {isDisabled ? 'Reactivar' : 'Desactivar'}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => deleteTable(table)}
+                                                        style={{
+                                                            padding: '6px 12px',
+                                                            borderRadius: 8,
+                                                            fontSize: 12,
+                                                            fontWeight: 700,
+                                                            background: theme.red + '22',
+                                                            color: theme.red,
+                                                            border: `1px solid ${theme.red}44`,
+                                                        }}
+                                                    >
+                                                        Eliminar
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
                                 </div>
                             </div>
                         )}
