@@ -86,7 +86,10 @@ function OrderTracker({ tableId, sessionOrderIds }) {
     const [items, setItems] = useState([])
 
     const fetchItems = useCallback(async () => {
-        if (!sessionOrderIds.length) return
+        if (!sessionOrderIds.length) {
+            setItems([])
+            return
+        }
         const { data } = await supabase
             .from('order_items')
             .select('id, name, photo, qty, status, order_id')
@@ -271,6 +274,16 @@ export default function MenuPage() {
     const [showBillModal, setShowBillModal] = useState(false)
     const [showAccountToast, setShowAccountToast] = useState(false) // toast al solicitar
 
+    const resetClientOrderFlow = useCallback(() => {
+        setSessionOrderIds([])
+        setAccountRequested(false)
+        setSubmitted(false)
+        setBill(null)
+        setBillNew(false)
+        setShowBillModal(false)
+        setShowAccountToast(false)
+    }, [])
+
     // ── Sin mesa ──────────────────────────────────────────────────────────────
     if (!tableId) {
         return (
@@ -351,6 +364,41 @@ export default function MenuPage() {
 
         return () => supabase.removeChannel(channel)
     }, [tableId])
+
+    // ── Limpiar UI del cliente cuando la mesa fue liberada tras pago ─────────
+    useEffect(() => {
+        if (!tableId) return
+
+        const tableNum = parseInt(tableId)
+
+        const syncTableState = async () => {
+            const [{ data: table }, { data: openOrders }, { data: sentBill }] = await Promise.all([
+                supabase.from('tables').select('status').eq('id', tableNum).maybeSingle(),
+                supabase.from('orders').select('id').eq('table_id', tableNum).eq('closed', false).limit(1),
+                supabase.from('bills').select('id').eq('table_id', tableNum).eq('status', 'sent').limit(1),
+            ])
+
+            const isFree = table?.status === 'free'
+            const hasOpenOrders = (openOrders || []).length > 0
+            const hasSentBill = (sentBill || []).length > 0
+
+            // Mesa libre + sin pedidos abiertos + sin cuenta enviada => flujo terminado/pagado
+            if (isFree && !hasOpenOrders && !hasSentBill) {
+                resetClientOrderFlow()
+            }
+        }
+
+        syncTableState()
+
+        const channel = supabase
+            .channel(`client-table-sync-${tableId}-${Date.now()}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'tables', filter: `id=eq.${tableId}` }, syncTableState)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `table_id=eq.${tableId}` }, syncTableState)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'bills', filter: `table_id=eq.${tableId}` }, syncTableState)
+            .subscribe()
+
+        return () => supabase.removeChannel(channel)
+    }, [tableId, resetClientOrderFlow])
 
     // ── Cart ──────────────────────────────────────────────────────────────────
     const addToCart = (product) => setCart(c => {
